@@ -1,7 +1,6 @@
 import os
 from abc import ABC, abstractmethod
 import numpy as np
-from wfl.calculators.generic import calculate as generic_calc
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.autoparallelize import AutoparaInfo
 
@@ -71,7 +70,7 @@ class MDGen(StructureGenStrategy):
                 autopara_info=AutoparaInfo(
                     remote_info=remote_info,
                     num_inputs_per_python_subprocess=1
-                    ),
+                ),
                 **self.md_params
             )
 
@@ -103,7 +102,7 @@ class OPTGen(StructureGenStrategy):
         """
         in_config = ConfigSet(in_file)
         out_config = OutputSpec(out_file)
-        fmax=1e-3
+        fmax=0.001
 
         if remote_info is None:
             optimize(
@@ -113,7 +112,7 @@ class OPTGen(StructureGenStrategy):
                 traj_subselect=self.traj_subselect,
                 fmax=fmax,
                 **kwargs
-                )
+            )
 
         elif remote_info:
             optimize(
@@ -125,9 +124,9 @@ class OPTGen(StructureGenStrategy):
                 autopara_info=AutoparaInfo(
                     remote_info=remote_info,
                     num_inputs_per_python_subprocess=1
-                    ),
+                ),
                 **kwargs
-                )
+            )
 
 # Strategy using CI-NEB as generator
 class NEBGen(StructureGenStrategy):

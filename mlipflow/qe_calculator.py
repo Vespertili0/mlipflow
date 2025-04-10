@@ -6,7 +6,7 @@ from ase.calculators.emt import EMT
 from ase.calculators.espresso import EspressoProfile
 from wfl.calculators.espresso import Espresso
 
-from mlipflow.wfl_potentials import prepare_remote
+from mlipflow.utils import prepare_remote
 #####################################################################
 
 
@@ -30,7 +30,7 @@ class EMTCalc(QChemStrategy):
 
 # Quantum Espresso DFT-strategy class
 class QECalculator(QChemStrategy):
-    def __init__(self, basic_params, pseudo_dir, max_time_sec) -> None:
+    def __init__(self, basic_params: str, pseudo_dir: str, max_time_sec: int) -> None:
         super().__init__()
         self.basic_params = basic_params
         self.pseudo_dir = pseudo_dir
@@ -42,7 +42,7 @@ class QECalculator(QChemStrategy):
             'H' : 'H.pbe-kjpaw_psl.1.0.0.UPF',
             'N': 'N.pbe-n-kjpaw_psl.1.0.0.UPF', 
             'Pd': 'Pd.pbe-n-kjpaw_psl.1.0.0.UPF'
-            }
+        }
         
 
     def get_calculator(self, job_name, ecut_eV: int = 450, kpts: tuple = (3,3,1),

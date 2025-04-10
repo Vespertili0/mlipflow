@@ -1,30 +1,77 @@
 import os
 import numpy as np
+from ase.calculators.calculator import all_changes
 from wfl.calculators.wfl_fileio_calculator import WFLFileIOCalculator
 from wfl.generate.md.abort_base import AbortSimBase
 from mace.calculators import MACECalculator
 from quippy.potential import Potential
-from wfl.autoparallelize import AutoparaInfo, RemoteInfo
 
-from expyre.resources import Resources
-import expyre
-expyre.config.init(root_dir=os.getcwd())
+# NOMAD compatible, see https://nomad-lab.eu/prod/rae/gui/uploads
+_default_keep_files = ["*.out"]
+_default_properties = ["energy", "forces", "stress"]
 
 # calculator classes for remote jobs
 class GAPCalc(WFLFileIOCalculator, Potential):
     """
 
     """
-    def __init__(self, keep_files, rundir_prefix, workdir=None, scratchdir=None, **kwargs):
-        super().__init__(keep_files, rundir_prefix, workdir=None, scratchdir=None, **kwargs)
+    def __init__(self, keep_files='default', rundir_prefix='run_GAP_', workdir=None, scratchdir=None, **kwargs):
+
+        # WFLFileIOCalculator is a mixin, will call remaining superclass constructors
+        super().__init__(keep_files=keep_files, rundir_prefix=rundir_prefix,
+                         workdir=workdir, scratchdir=scratchdir, **kwargs)
+
+    def calculate(self, atoms=None, properties=_default_properties, system_changes=all_changes):
+        """
+        """
+        # from WFLFileIOCalculator
+        self.setup_rundir()
+
+        try:
+            super().calculate(atoms=atoms, properties=properties, system_changes=system_changes)
+            calculation_succeeded = True
+            if 'FAILED_GAP' in atoms.info:
+                del atoms.info['FAILED_GAP']
+        except Exception as exc:
+            atoms.info['FAILED_GAP'] = True
+            calculation_succeeded = False
+            raise exc
+        finally:
+            # from WFLFileIOCalculator
+            self.clean_rundir(_default_keep_files, calculation_succeeded)   
+
 
 class MACECalc(WFLFileIOCalculator, MACECalculator):
     """
 
     """
-    def __init__(self, keep_files, rundir_prefix, workdir=None, scratchdir=None, **kwargs):
-        super().__init__(keep_files, rundir_prefix, workdir=None, scratchdir=None, **kwargs)
+    def __init__(self, keep_files='default', rundir_prefix='run_MACE_', workdir=None, scratchdir=None, **kwargs):
+        
+        # WFLFileIOCalculator is a mixin, will call remaining superclass constructors
+        super().__init__(keep_files=keep_files, rundir_prefix=rundir_prefix,
+                         workdir=workdir, scratchdir=scratchdir, **kwargs)
 
+    def calculate(self, atoms=None, properties=_default_properties, system_changes=all_changes):
+        """
+        """
+        if atoms is not None:
+            self.atoms = atoms.copy()
+        
+        # from WFLFileIOCalculator
+        #self.setup_rundir()
+
+        try:
+            super().calculate(atoms=atoms, properties=properties, system_changes=system_changes)
+            calculation_succeeded = True
+            if 'FAILED_MACE' in atoms.info:
+                del atoms.info['FAILED_MACE']
+        except Exception as exc:
+            atoms.info['FAILED_MACE'] = True
+            calculation_succeeded = False
+            raise exc
+#        finally:
+#            # from WFLFileIOCalculator
+#            self.clean_rundir(_default_keep_files, calculation_succeeded)        
 
 
 ###############################################################################################################
@@ -56,29 +103,3 @@ def select_config(traj):
     
     else:
         return traj[-10:-9]
-    
-
-#########################################################################################
-
-def prepare_remote(max_time, n_cores, num_inputs_per_queued_job, job_name,
-                   pre_cmds=[], post_cmds=[], input_files=[], output_files=[],
-                   sys_name='local')->RemoteInfo:
-    """
-    """
-    remote_info = RemoteInfo(resources=Resources(max_time=max_time,
-                                                 num_cores=n_cores,
-                                                 max_mem_tot="32GB",
-                                                 partitions='work'),
-                             sys_name=sys_name,
-                             num_inputs_per_queued_job=num_inputs_per_queued_job,
-                             job_name=job_name,
-                             input_files=input_files,
-                             output_files=output_files,
-                             pre_cmds=pre_cmds,
-                             post_cmds=post_cmds,
-                             exact_fit=False,
-                             partial_node=True,
-                             resubmit_killed_jobs=True,
-                             ignore_failed_jobs=True,
-                             )
-    return remote_info

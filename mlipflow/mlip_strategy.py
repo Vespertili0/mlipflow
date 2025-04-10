@@ -8,7 +8,8 @@ from wfl.configset import ConfigSet, OutputSpec
 from wfl.fit.mace import fit as mace_fit
 from mace.calculators import MACECalculator
 
-from mlipflow.wfl_potentials import prepare_remote, GAPCalc, MACECalc
+from mlipflow.utils import prepare_remote
+from mlipflow.wfl_potentials import GAPCalc, MACECalc
 #####################################################################
 
 # Base Strategy class for MLIP approach
@@ -30,50 +31,62 @@ class MLIPStrategy(ABC):
 
 # MACE strategy class
 class MACEModel(MLIPStrategy):
-    def __init__(self, mlip_file, mace_config=None, run_mode='remote') -> None:
-        super().__init__(run_mode)
-        with open(mace_config) as param_json:
-            self.mace_config = json.load(param_json)
+    """
+    """
+    def __init__(self, mlip_file, run_mode='remote') -> None:
+        super().__init__(run_mode=run_mode, mlip_file=mlip_file)
         self.mlip_prefix = 'MACE'
         self.mlip_file = mlip_file
 
     def get_calculator(self, job_name):
         if self.run_mode == 'local':
-            calculator = (MACECalculator, None, {
-                        'model_paths': self.mlip_file,
-                        'device': 'cpu',
-                        'default_dtype': 'float64',
-                #        'dispersion': True
-                        })
             self.remote_info = None
-            
-        elif self.run_mode == "remote":
-            calculator = (MACECalc, None, {
-                'keep_files': None,
-                'rundir_prefix': 'MACE_',
-                'model_paths': os.path.abspath(self.mlip_file),
-                'device': 'cpu',
-                'default_dtype': 'float64',
-            #    'dispersion': True
+
+            calculator = (
+                MACECalculator,
+                [], 
+                {
+                    'model_paths': os.path.abspath(self.mlip_file),
+                    'device': 'cpu',
+                    'default_dtype': 'float64',
+                    'dispersion': True
                 }
             )
-            
+
+        elif self.run_mode == "remote":
             self.remote_info = prepare_remote(
-                max_time='02:00:00', 
-                n_cores=2,
-                num_inputs_per_queued_job=3,
+                max_time='00:10:00', 
+                n_cores=1,
+                num_inputs_per_queued_job=5,
                 job_name=job_name,
-                sys_name='local_mace'
-            #   pre_cmds=['']
-            )
-            
+#                pre_cmds=['export OMP_NUM_THREADS=1']
+#                sys_name='local_mace'
+            )            
+
+            calculator = (
+                MACECalc, 
+                [], 
+                {
+                    'keep_files': None,
+                    'rundir_prefix': 'MACE_',
+                    'model_paths': os.path.abspath(self.mlip_file),
+                    'device': 'cpu',
+                    'default_dtype': 'float64',
+                    'dispersion': True
+                }
+            )      
         return calculator
     
-    def fit_new_model(self, in_file, model_name, run_dir) -> None:
+    def fit_new_model(self, in_file, model_name, run_dir, config_file) -> None:
+        """
+        """
+        with open(config_file) as param_json:
+            mace_config = json.load(param_json)
+        
         mace_fit(
             fitting_configs=ConfigSet(in_file),
             mace_name=model_name, 
-            mace_fit_params=self.mace_config,
+            mace_fit_params=mace_config,
             run_dir=run_dir,
             ref_property_prefix='DFT_',
         #    valid_configs=None,                         # !!!
@@ -84,14 +97,14 @@ class MACEModel(MLIPStrategy):
                 num_inputs_per_queued_job=1,
                 job_name='MACEfit',
                 sys_name='local_mace'
-                )
             )
+        )
         
 
 # GAP strategy class    
 class GAPModel(MLIPStrategy):
-    def __init__(self, run_mode='remote') -> None:
-        super().__init__(run_mode)
+    def __init__(self, mlip_file, run_mode='remote') -> None:
+        super().__init__(run_mode=run_mode, mlip_file=mlip_file)
         self.mlip_prefix = 'GAP'
 
         # defining GAP-specific variables
@@ -122,16 +135,20 @@ class GAPModel(MLIPStrategy):
 
     def get_calculator(self, job_name):
         if self.run_mode == 'local':
-            calculator = (Potential, None, {'param_filename': self.mlip_file})
+            calculator = (Potential, [], {
+                'param_filename': self.mlip_file,
+                'calc_args': 'local_gap_variance'}
+            )
             self.remote_info = None
     
         elif self.run_mode == 'remote':
-            calculator = (GAPCalc, None, {
+            calculator = (GAPCalc, [], {
                 'keep_files': None,
                 'rundir_prefix': 'GAP_',
                 'param_filename': os.path.abspath(self.mlip_file),
                 'calc_args':'local_gap_variance'
-                })
+                }
+            )
             
             self.remote_info = prepare_remote(
                 max_time='02:00:00', 
@@ -139,7 +156,7 @@ class GAPModel(MLIPStrategy):
                 num_inputs_per_queued_job=5,
                 job_name=job_name,
                 pre_cmds=['export OMP_NUM_THREADS=1']
-                )
+            )
             
         return calculator
 
