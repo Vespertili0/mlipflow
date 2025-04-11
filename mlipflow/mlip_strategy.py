@@ -14,6 +14,9 @@ from mlipflow.wfl_potentials import GAPCalc, MACECalc
 
 # Base Strategy class for MLIP approach
 class MLIPStrategy(ABC):
+    """
+    Base class for MLIP strategy classes. It defines the interface for MLIPs implemented in the MLIPFlow package.
+    """
     def __init__(self, run_mode, mlip_file=None) -> None:
         assert run_mode in ['local', 'remote'], 'run_mode is "local" or "remote"'
         self.run_mode = run_mode
@@ -32,6 +35,13 @@ class MLIPStrategy(ABC):
 # MACE strategy class
 class MACEModel(MLIPStrategy):
     """
+    MACE strategy class for MLIPFlow. It defines the interface for MACE implemented in the MLIPFlow package.
+    Parameters:
+    ----------
+    mlip_file: (str) file name of the MACE model.
+    run_mode: (str) 'local' or 'remote'. If 'local', the MACE model is run locally in current job. 
+                    If 'remote', the MACE model is submitted to run via wfl-RemoteInfo object.
+    
     """
     def __init__(self, mlip_file, run_mode='remote') -> None:
         super().__init__(run_mode=run_mode, mlip_file=mlip_file)
@@ -39,6 +49,10 @@ class MACEModel(MLIPStrategy):
         self.mlip_file = mlip_file
 
     def get_calculator(self, job_name):
+        """
+        It returns the MACE-calculator as tuple with the ase-calculator class, arguments and keyword arguments.
+        Creates the remote_info object if run_mode is 'remote'.
+        """
         if self.run_mode == 'local':
             self.remote_info = None
 
@@ -79,6 +93,20 @@ class MACEModel(MLIPStrategy):
     
     def fit_new_model(self, in_file, model_name, run_dir, config_file) -> None:
         """
+        Run the wfl.fit.mace.fit function.
+        Parameters
+        ----------
+        in_file:                str
+            Path to file containing the input configs for the MACE fit
+        model_name:             str
+            File name of written MACE model
+        run_dir:                str, default='MACE'
+            Name of the directory in which the MACE files will be written
+        config_file:            str
+            Path to the JSON file containing MACE fitting parameters
+        Returns
+        -------
+        None, the selected files are written in the defined directory.
         """
         with open(config_file) as param_json:
             mace_config = json.load(param_json)
@@ -103,6 +131,15 @@ class MACEModel(MLIPStrategy):
 
 # GAP strategy class    
 class GAPModel(MLIPStrategy):
+    """
+    GAP strategy class for MLIPFlow. It defines the interface for GAP implemented in the MLIPFlow package.
+    Parameters:
+    ----------
+    mlip_file: (str) file name of the GAP model.
+    run_mode: (str) 'local' or 'remote'. If 'local', the GAP model is run locally in current job. 
+                    If 'remote', the GAP model is submitted to run via wfl-RemoteInfo object.
+    
+    """
     def __init__(self, mlip_file, run_mode='remote') -> None:
         super().__init__(run_mode=run_mode, mlip_file=mlip_file)
         self.mlip_prefix = 'GAP'
