@@ -216,7 +216,7 @@ class GAPModel(MLIPStrategy):
         """
         in_config = ConfigSet(in_file)
 
-        #gap_params = prep_params(Zs=Zs, length_scales=length_scales, GAP_template=params)
+        #gap_params = prep_params(Zs=Zs, length_scales=length_scales, GAP_mlipflow=params)
         gap_params = self._get_multistage_params()
         multi_gap_fit(
             fitting_configs=in_config,
