@@ -76,24 +76,26 @@ class MDGen(StructureGenStrategy):
 
 # Strategy using optimisation as generator
 class OPTGen(StructureGenStrategy):
-    def __init__(self, traj_subselect="last_converged") -> None:
+    def __init__(self, traj_subselect="last_converged", opt_params={'fmax': 0.1, 'steps': 250}) -> None:
         super().__init__()
         self.traj_subselect = traj_subselect
+        self.opt_params = opt_params
 
     def generate_new_structures(self, in_file, out_file, calculator,
-                                remote_info=None,  **kwargs) -> None:
+                                remote_info=None) -> None:
         """
         Generates new configs via the wfl.generate_configs.optimize run function.
 
         Parameters
         ----------
-        atoms:  list
+        in_file:  list
             list of configs to be relaxed.
             #IMPORTANT: Constraints, such as fixed atoms need to be set previously
         out_file: str
             file in which the relaxation trajectories will be stored
-        gap_file: str
-            Path to GAP parameter file which we will use to create the calculator
+        calculator: ase-calculator object
+            calculator to be used for the relaxation
+        remote_info: wfl-RemoteInfo object, optional
 
         **kwargs:
         In general: kwargs for the run function, the two "main" ones:
@@ -102,7 +104,6 @@ class OPTGen(StructureGenStrategy):
         """
         in_config = ConfigSet(in_file)
         out_config = OutputSpec(out_file)
-        fmax=0.001
 
         if remote_info is None:
             optimize(
@@ -110,8 +111,7 @@ class OPTGen(StructureGenStrategy):
                 out_config,
                 calculator=calculator, 
                 traj_subselect=self.traj_subselect,
-                fmax=fmax,
-                **kwargs
+                **self.opt_params
             )
 
         elif remote_info:
@@ -119,13 +119,12 @@ class OPTGen(StructureGenStrategy):
                 in_config,
                 out_config, 
                 calculator=calculator,
-                fmax=fmax,
                 traj_subselect=self.traj_subselect,
                 autopara_info=AutoparaInfo(
                     remote_info=remote_info,
                     num_inputs_per_python_subprocess=1
                 ),
-                **kwargs
+                **self.opt_params
             )
 
 # Strategy using CI-NEB as generator

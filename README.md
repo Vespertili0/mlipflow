@@ -6,7 +6,7 @@
 - [Installation](#installation)
 - [Usage](#usage)
 - [Features](#features)
-- [Roadmap](#roadmap)
+- [Code Structure & Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [Testing](#testing)
 - [License](#license)

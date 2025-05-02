@@ -14,8 +14,10 @@ class DataManager:
         }
         
 
-    def setup_iteration(self, fit_idx):
+    def setup_iteration(self, fit_idx: int) -> None:
         """
+        Function to set up the folder structure for a new iteration of the MLIP training.
+        This includes creating the necessary directories and defining the file paths for various outputs.
         """
         self._create_folder_structure(fit_idx=fit_idx)
         
@@ -39,7 +41,17 @@ class DataManager:
         self.files["training_desc"] = f1("training_desc", "")
         self.files["gap_params"] = f2(".descriptor_dicts.yaml")
 
-    def get_model_name(self, fit_idx, mlip_prefix) -> None:
+    def get_model_name(self, fit_idx: int, mlip_prefix: str) -> None:
+        """
+        Function to write the model name to the files dictionary.
+        The model name is based on the MLIP prefix and the fit index.
+
+        fit_idx: int
+            The index of the current fit iteration.
+        mlip_prefix: str
+            The prefix for the MLIP model
+            (e.g., '.model' for 'MACE' or '.xml' for 'GAP').
+        """
         model_fmt = self.mlip_file_fmt.get(mlip_prefix)
         self.files['mlip_model'] = os.path.join(
             self.MLIP_dir,
@@ -57,7 +69,11 @@ class DataManager:
             tag_dict={'data_type': 'train'}
         )
 
-    def initialise_ensembles(self, ensemble_traj) -> None:
+    def initialise_ensembles(self, ensemble_traj: str) -> None:
+        """
+        Function copying provided ase-traj file of ensemble to xyz-format.
+        The xyz-file is used for the training of the MLIP, while the traj-file is used for the exploration.
+        """
         shutil.copy2(
             ensemble_traj, 
             self.files.get("ensemble_traj")
@@ -67,7 +83,10 @@ class DataManager:
             read(self.files.get("ensemble_traj"), ':')
         )
     
-    def move_mace_model_file(self, mlip_prefix):
+    def move_mace_model_file(self, mlip_prefix: str) -> None:
+        """
+        Function to move the compiled MACE model file to the MLIP directory.
+        """
         shutil.copy2(
             os.path.join(self.MLIP_dir, 'MACE_model', f'{mlip_prefix}_compiled.model'),
             os.path.join(self.MLIP_dir, f'{mlip_prefix}.model')

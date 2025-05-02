@@ -41,7 +41,7 @@ def prepare_remote(max_time: int, n_cores: int, num_inputs_per_queued_job: int, 
         post_cmds=post_cmds,
         exact_fit=False,
         partial_node=True,
-        resubmit_killed_jobs=True,
+        resubmit_killed_jobs=False,
         ignore_failed_jobs=True,
     )
     return remote_info
