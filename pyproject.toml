@@ -27,8 +27,8 @@ classifiers = [
 requires-python = ">=3.9"
 dependencies = [
     "wfl @ git+https://github.com/libAtoms/workflow",
-    "mace-torch"
-    "numpy"
+    "mace-torch",
+    "numpy",
 ]
 
 [project.optional-dependencies]
