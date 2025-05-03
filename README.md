@@ -40,73 +40,71 @@ classDiagram
         +get_file_path(iteration: int, filename: str): str
     }
 
-    class ActiveLearnerBase {
-        -structure_generation_strategy: StructureGenerationStrategy
+    class ActiveLearner {
+        -structure_generation_strategy: StructureGenStrategy
         -mlip_strategy: MLIPStrategy
+        -qchem_strategy: QChemStrategy
         -iteration: int
-        +run_iteration()
-        +mlip_single_point_calculation(data)
-        +mlip_structure_generation(data)
-        +dft_single_point_calculation(data)
-        +error_assessment(data)
-        +mlip_fitting(data)
-        +temp_file_cleanup(data)
+        +initialise_learning(ensemble_traj, initial_xyz, qchem: bool)
+        +run_iteration(n_iter: int)
+        +run_single_point(in_file, out_file, output_prefix, calculator, remote_info)
+        +calculate_mlip_error(in_configs, out_file, fit_idx, iter_dir)
+        +clean_up()
     }
 
-    class StructureGenerationStrategy {
-        +generate_structure(data)
+    class StructureGenStrategy {
+        +generate_new_structures()
     }
 
-    class MDStructureGenerationStrategy {
-        +generate_structure(data)
+    class MDGen {
+        +generate_new_structures(in_file, out_file, calculator, remote_info)
     }
 
-    class GeometryOptimizationStrategy {
-        +generate_structure(data)
+    class OPTGen {
+        +generate_new_structures(in_file, out_file, calculator, remote_info)
+    }
+
+    class NEBGen {
+        +generate_new_structures()
     }
 
     class MLIPStrategy {
-        +fit(data)
-        +local_setup(config)
-        +remote_setup(config)
-        +mlip_single_point_calculation(data)
+        +get_calculator(job_name)
+        +fit_new_model(in_file, model_name, run_dir)
     }
 
-    class GAPStrategy {
-        +fit(data)
-        +local_setup(config)
-        +remote_setup(config)
-        +mlip_single_point_calculation(data)
+    class GAPModel {
+        +get_calculator(job_name)
+        +fit_new_model(in_file, model_name, run_dir)
     }
 
-    class MACEStrategy {
-        +fit(data)
-        +local_setup(config)
-        +remote_setup(config)
-        +mlip_single_point_calculation(data)
+    class MACEModel {
+        +get_calculator(job_name)
+        +fit_new_model(in_file, model_name, run_dir, config_file)
     }
 
-    class Observer {
-        +update(data)
+    class QChemStrategy {
+        +get_calculator(job_name)
     }
 
-    class ModelObserver {
-        +update(data)
+    class EMTCalc {
+        +get_calculator(job_name)
     }
 
-    class VisualizationObserver {
-        +update(data)
+    class QECalculator {
+        +get_calculator(job_name, ecut_eV, kpts, dipole, dftd3)
     }
 
-    ActiveLearnerBase --> StructureGenerationStrategy : uses
-    ActiveLearnerBase --> MLIPStrategy : uses
-    StructureGenerationStrategy <|-- MDStructureGenerationStrategy : extends
-    StructureGenerationStrategy <|-- GeometryOptimizationStrategy : extends
-    MLIPStrategy <|-- GAPStrategy : extends
-    MLIPStrategy <|-- MACEStrategy : extends
-    ActiveLearnerBase --> Observer : observes
-    Observer <|-- ModelObserver : extends
-    Observer <|-- VisualizationObserver : extends
+    ActiveLearner --> StructureGenStrategy : uses
+    ActiveLearner --> MLIPStrategy : uses
+    ActiveLearner --> QChemStrategy : uses
+    StructureGenStrategy <|-- MDGen : extends
+    StructureGenStrategy <|-- OPTGen : extends
+    StructureGenStrategy <|-- NEBGen : extends
+    MLIPStrategy <|-- GAPModel : extends
+    MLIPStrategy <|-- MACEModel : extends
+    QChemStrategy <|-- EMTCalc : extends
+    QChemStrategy <|-- QECalculator : extends
 ```
 
 ### Roadmap
