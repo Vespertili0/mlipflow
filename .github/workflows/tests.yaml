@@ -5,7 +5,9 @@ env:
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - "dev-v*.*"
   pull_request:
 
 concurrency:
@@ -38,6 +40,7 @@ jobs:
       - name: Install pip packages
         run: |
           pip install uv
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
           uv pip install --system -r tests/requirements.txt .[dev]
 
       - name: Set coverage core

@@ -25,7 +25,11 @@ classifiers = [
     "Operating System :: MacOS",
 ]
 requires-python = ">=3.9"
-dependencies = ["numpy"]
+dependencies = [
+    "wfl @ git+https://github.com/libAtoms/workflow",
+    "mace-torch"
+    "numpy"
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.4.0", "pytest-cov>=3.0.0", "ruff>=0.0.285"]
@@ -39,9 +43,9 @@ docs = [
 ]
 
 [project.urls]
-#repository = "https://github.com/Quantum-Accelerators/mlipflow"
-#documentation = "https://quantum-accelerators.github.io/mlipflow/"
-#changelog = "https://github.com/Quantum-Accelerators/mlipflow/blob/main/CHANGELOG.md"
+#repository = "https://github.com/Vespertili0/mlipflow/"
+#documentation = ""
+#changelog = "https://github.com/Vespertili0/mlipflow//blob/main/CHANGELOG.md"
 
 [tool.setuptools.package-data]
 mlipflow = ["py.typed"]
