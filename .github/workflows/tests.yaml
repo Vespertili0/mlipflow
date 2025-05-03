@@ -41,7 +41,8 @@ jobs:
         run: |
           pip install uv
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          uv pip install --system -r tests/requirements.txt .[dev]
+          pip install git+https://github.com/libAtoms/workflow
+          pip install numpy==2.0uv pip install --system -r tests/requirements.txt .[dev]
 
       - name: Set coverage core
         run: |
