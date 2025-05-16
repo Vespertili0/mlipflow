@@ -1,5 +1,6 @@
 import os, shutil, logging
 import numpy as np
+from ase.io import read
 from wfl.calculators.generic import calculate as generic_calc
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.autoparallelize import AutoparaInfo
@@ -155,7 +156,7 @@ class ActiveLearner:
 
         # clean up temp-files
         self._write_log('custom', '...Cleaning up tmp-dirs')
-        self.clean_up()
+        self.data_manager.clean_up()
 
 
     def run_single_point(self, in_file, out_file, output_prefix,
@@ -236,13 +237,40 @@ class ActiveLearner:
         return errors
 
 
-    def clean_up(self) -> None:
-        try:
-            run_dirs = [rd for rd in os.listdir() if '_chunk_' in rd]
-            for rd in run_dirs:
-                shutil.rmtree(rd)
-        except:
-            pass
+    def run_chunked_dftsp(self, in_file, out_file, chunk_size=150)-> None:
+        """
+        Run DFT single-point calculation in chunks of input file
+        """
+        chunk_list = self._chunk_indices(in_file, chunk_size=chunk_size)
+        chunk_files = [f'tmp_{n}.xyz' for n in range(len(chunk_list))]
+        for n, chunk in enumerate(chunk_list):
+            # run SP-calculation
+            atoms = read(in_file, index=chunk)
+            self.run_single_point(
+                in_file=atoms, 
+                out_file=f'tmp_{n}.xyz', 
+                output_prefix=self.qchem_strategy.qe_prefix,
+                calculator=self.qchem_strategy.get_calculator(job_name='QE_'), 
+                remote_info=self.qchem_strategy.remote_info
+            )
+            # clean up chunk directories
+            self.data_manager.clean_up()
+        
+        # combine all chunks
+        self.data_manager.merge_clean_chunks(
+            in_files=chunk_files,
+            out_file=out_file
+        )
+        # clean up tmp-files
+        self.data_manager.clean_up(key='tmp_')
+
+
+    def _chunk_indices(self, in_file, chunk_size=150)-> list:
+        """
+        Split input file into chunks of size chunk_size
+        """
+        n_configs = len(read(in_file, index=':'))
+        return [f'{i}:{min(i+chunk_size, n_configs)}' for i in range(0, n_configs, chunk_size)]
 
 
     def _write_log(self, step, comment=None):

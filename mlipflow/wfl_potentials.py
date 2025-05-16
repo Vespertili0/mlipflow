@@ -36,9 +36,9 @@ class GAPCalc(WFLFileIOCalculator, Potential):
             atoms.info['FAILED_GAP'] = True
             calculation_succeeded = False
             raise exc
-        finally:
-            # from WFLFileIOCalculator
-            self.clean_rundir(_default_keep_files, calculation_succeeded)   
+#        finally:
+#            # from WFLFileIOCalculator
+#            self.clean_rundir(_default_keep_files, calculation_succeeded)   
 
 
 class MACECalc(WFLFileIOCalculator, MACECalculator):

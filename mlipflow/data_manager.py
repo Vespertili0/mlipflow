@@ -63,7 +63,7 @@ class DataManager:
         """
         new_training = read(training_xyz, ':') 
         new_training += read(add_xyz, ':')
-        self._update_configset_tag(
+        self.update_configset_tag(
             in_config=new_training,
             out_file=out_file,
             tag_dict={'data_type': 'train'}
@@ -121,7 +121,7 @@ class DataManager:
 
         write(out_file, selected_configs)
 
-    def _update_configset_tag(self, in_config, out_file, tag_dict):
+    def update_configset_tag(self, in_config, out_file, tag_dict):
         """
         Function to update a wfl.configset with a new tag
 
@@ -138,7 +138,78 @@ class DataManager:
         OutputSpec(out_file, tags=tag_dict, overwrite=True).write(configs)
 
         return None
+    
+    def filter_info_dict(self, info_dict: dict, keep_info: list) -> dict:
+        return {key: info_dict[key] for key in keep_info if key in info_dict}
+    
 
+    def split_success_failed_configs(self, configs:list, key:str ='DFT_energy') -> tuple[list, list]:
+        """
+        Split the configurations into successful and failed ones based on the presence of a key in the info dictionary.
+        Parameters
+        ----------
+        configs:    list
+            list of configurations to split
+        key:        str
+            key to check for in the info dictionary
+            failed configurations DO NOT have this key.
+        
+        Returns
+        -------
+        tuple (success_configs, failed_configs)
+        """
+        success_configs = []
+        failed_configs = []
+        for config in configs:
+            if key not in config.info.keys():
+                failed_configs.append(config)
+            else:
+                success_configs.append(config)
+
+        return success_configs, failed_configs
+
+
+    def merge_clean_chunks(self, in_files, out_file)-> None:
+        """
+        Merge all chunks into one file and clean up the data.info
+        write the failed and successful configurations into separate files.
+        Parameters
+        ----------
+        in_files:   list
+            list of input files to merge
+        out_file:   str
+            name of the output file
+        """
+        success_configs = []
+        failed_configs = []
+        # loop over all chunks
+        for file in in_files:
+            success, failed = self.split_success_failed_configs(
+                configs=read(file, ':'),
+                key='DFT_energy' 
+            )
+            for config in success:
+                config.info = self.filter_info_dict(
+                    info_dict=config.info,
+                    keep_info=['DFT_energy']
+                )
+            success_configs += success
+            failed_configs += failed
+        # write new files
+        OutputSpec(out_file, tags={'data_type': 'train'}).write(ConfigSet(success_configs))
+        name, ext = os.path.splitext(out_file)
+        OutputSpec(f'{name}_failed{ext}').write(ConfigSet(failed_configs))
+    
+
+    def clean_up(self, key='_chunk_') -> None:
+        try:
+            run_dirs = [rd for rd in os.listdir() if key in rd]
+            for rd in run_dirs:
+                shutil.rmtree(rd)
+        except:
+            pass
+
+    
     def _create_folder_structure(self, fit_idx):
         self.ensemble_dir = os.path.join(self.workdir, 'ENSEMBLE')
         self.iter_dir = os.path.join(self.workdir, f'{fit_idx}_iteration')

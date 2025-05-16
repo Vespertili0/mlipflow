@@ -10,7 +10,7 @@ def mock_active_learner(tmp_path):
     """Fixture to set up a mock ActiveLearner instance."""
     data_manager = DataManager(workdir=str(tmp_path))
     structure_gen = MDGen(uncertainty_thrs=0.1)
-    mlip_strategy = MACEModel(mlip_file="mace_test.model", run_mode="local")  # Updated to MACEModel
+    mlip_strategy = MACEModel(mlip_file="mace_test.model", run_mode="local")
     learner = ActiveLearner(
         data_manager=data_manager,
         structure_generation_strategy=structure_gen,
