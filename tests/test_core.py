@@ -5,8 +5,8 @@ from mlipflow.core.single_point import run_single_point
 
 def test_mace_for_single_point_energy():
     """Test MACEModel's single_point_energy method."""
-    in_file = '../data/test_data.xyz'
-    mace_model = MACEModel(mlip_file="mace_test.model", run_mode="local")
+    in_file = 'data/test_data.xyz'
+    mace_model = MACEModel(mlip_file="data/mace_test.model", run_mode="local")
     run_single_point(
         in_file=in_file,
         out_file='test_output.xyz',
