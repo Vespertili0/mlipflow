@@ -48,6 +48,11 @@ def test_run_iteration(mock_active_learner):
     learner.mlip_strategy.fit_new_model = MagicMock()
     learner.run_iteration = MagicMock()
 
+    learner.run_single_point()
+    learner.structure_generation_strategy.generate_new_structures()
+    learner.mlip_strategy.fit_new_model()
+    learner.run_iteration()
+
     learner.run_single_point.assert_called()
     learner.structure_generation_strategy.generate_new_structures.assert_called_once()
     learner.mlip_strategy.fit_new_model.assert_called_once()
