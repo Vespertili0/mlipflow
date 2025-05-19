@@ -1,5 +1,6 @@
 import os, pytest
 from unittest.mock import MagicMock
+from mlipflow.qe_calculator import EMTCalc
 from mlipflow.active_learning import ActiveLearner
 from mlipflow.data_manager import DataManager
 from mlipflow.structure_generator import MDGen
@@ -12,11 +13,13 @@ def mock_active_learner():
     mlip_file = os.path.join(test_dir, 'data', 'mace_test.model')
     data_manager = DataManager(workdir=test_dir)
     structure_gen = MDGen(uncertainty_thrs=0.1)
+    qe_strategy = EMTCalc()
     mlip_strategy = MACEModel(mlip_file=mlip_file, run_mode="local")
     learner = ActiveLearner(
         data_manager=data_manager,
         structure_generation_strategy=structure_gen,
         mlip_strategy=mlip_strategy,
+        qchem_strategy=qe_strategy,
     )
     return learner
 
