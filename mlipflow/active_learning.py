@@ -198,79 +198,79 @@ class ActiveLearner:
                 )
 
 
-    def calculate_mlip_error(self, in_configs, out_file,
-                             fit_idx, iter_dir) -> dict:
-        """
-        """
-        OutputSpec(out_file).write(ConfigSet(in_configs))
-        
-        # calculate atomisation-energy for DFT- & GAP-energy
-        for prop in [f'{self.mlip_strategy.mlip_prefix}_', 'DFT_']:
-            atomization_energy(
-                inputs=ConfigSet(out_file), 
-                outputs=OutputSpec(out_file, overwrite=True), 
-                prop_prefix=prop
-                )
-
-        # calculate errors
-        errors, diffs, parity = error.calc(
-            inputs=ConfigSet(out_file),
-            calc_property_prefix=f'{self.mlip_strategy.mlip_prefix}_',
-            ref_property_prefix='DFT_',
-            category_keys='data_type', 
-            config_properties=["atomization_energy/atom"], #"energy/atom"
-            atom_properties=["forces/comp"]
-            )
-        
-        # plot errors
-        for error_type in ['RMSE', 'MAE']:
-            error.value_error_scatter(
-                all_errors = errors,
-                all_diffs=diffs, 
-                all_parity=parity,
-                output=os.path.join(iter_dir, f"{self.mlip_strategy.mlip_prefix}_{error_type}.png"),
-                ref_property_prefix='DFT_',
-                calc_property_prefix=f'{self.mlip_strategy.mlip_prefix}_',
-                error_type=error_type
-                )
-        
-        return errors
-
-
-    def run_chunked_dftsp(self, in_file, out_file, chunk_size=150)-> None:
-        """
-        Run DFT single-point calculation in chunks of input file
-        """
-        chunk_list = self._chunk_indices(in_file, chunk_size=chunk_size)
-        chunk_files = [f'tmp_{n}.xyz' for n in range(len(chunk_list))]
-        for n, chunk in enumerate(chunk_list):
-            # run SP-calculation
-            atoms = read(in_file, index=chunk)
-            self.run_single_point(
-                in_file=atoms, 
-                out_file=f'tmp_{n}.xyz', 
-                output_prefix=self.qchem_strategy.qe_prefix,
-                calculator=self.qchem_strategy.get_calculator(job_name='QE_'), 
-                remote_info=self.qchem_strategy.remote_info
-            )
-            # clean up chunk directories
-            self.data_manager.clean_up()
-        
-        # combine all chunks
-        self.data_manager.merge_clean_chunks(
-            in_files=chunk_files,
-            out_file=out_file
-        )
-        # clean up tmp-files
-        self.data_manager.clean_up(key='tmp_')
-
-
-    def _chunk_indices(self, in_file, chunk_size=150)-> list:
-        """
-        Split input file into chunks of size chunk_size
-        """
-        n_configs = len(read(in_file, index=':'))
-        return [f'{i}:{min(i+chunk_size, n_configs)}' for i in range(0, n_configs, chunk_size)]
+#    def calculate_mlip_error(self, in_configs, out_file,
+#                             fit_idx, iter_dir) -> dict:
+#        """
+#        """
+#        OutputSpec(out_file).write(ConfigSet(in_configs))
+#        
+#        # calculate atomisation-energy for DFT- & GAP-energy
+#        for prop in [f'{self.mlip_strategy.mlip_prefix}_', 'DFT_']:
+#            atomization_energy(
+#                inputs=ConfigSet(out_file), 
+#                outputs=OutputSpec(out_file, overwrite=True), 
+#                prop_prefix=prop
+#                )
+#
+#        # calculate errors
+#        errors, diffs, parity = error.calc(
+#            inputs=ConfigSet(out_file),
+#            calc_property_prefix=f'{self.mlip_strategy.mlip_prefix}_',
+#            ref_property_prefix='DFT_',
+#            category_keys='data_type', 
+#            config_properties=["atomization_energy/atom"], #"energy/atom"
+#            atom_properties=["forces/comp"]
+#            )
+#        
+#        # plot errors
+#        for error_type in ['RMSE', 'MAE']:
+#            error.value_error_scatter(
+#                all_errors = errors,
+#                all_diffs=diffs, 
+#                all_parity=parity,
+#                output=os.path.join(iter_dir, f"{self.mlip_strategy.mlip_prefix}_{error_type}.png"),
+#                ref_property_prefix='DFT_',
+#                calc_property_prefix=f'{self.mlip_strategy.mlip_prefix}_',
+#                error_type=error_type
+#                )
+#        
+#        return errors
+#
+#
+#    def run_chunked_dftsp(self, in_file, out_file, chunk_size=150)-> None:
+#        """
+#        Run DFT single-point calculation in chunks of input file
+#        """
+#        chunk_list = self._chunk_indices(in_file, chunk_size=chunk_size)
+#        chunk_files = [f'tmp_{n}.xyz' for n in range(len(chunk_list))]
+#        for n, chunk in enumerate(chunk_list):
+#            # run SP-calculation
+#            atoms = read(in_file, index=chunk)
+#            self.run_single_point(
+#                in_file=atoms, 
+#                out_file=f'tmp_{n}.xyz', 
+#                output_prefix=self.qchem_strategy.qe_prefix,
+#                calculator=self.qchem_strategy.get_calculator(job_name='QE_'), 
+#                remote_info=self.qchem_strategy.remote_info
+#            )
+#            # clean up chunk directories
+#            self.data_manager.clean_up()
+#        
+#        # combine all chunks
+#        self.data_manager.merge_clean_chunks(
+#            in_files=chunk_files,
+#            out_file=out_file
+#        )
+#        # clean up tmp-files
+#        self.data_manager.clean_up(key='tmp_')
+#
+#
+#    def _chunk_indices(self, in_file, chunk_size=150)-> list:
+#        """
+#        Split input file into chunks of size chunk_size
+#        """
+#        n_configs = len(read(in_file, index=':'))
+#        return [f'{i}:{min(i+chunk_size, n_configs)}' for i in range(0, n_configs, chunk_size)]
 
 
     def _write_log(self, step, comment=None):
