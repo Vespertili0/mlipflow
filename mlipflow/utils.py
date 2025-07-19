@@ -1,9 +1,16 @@
 import os
+from datetime import datetime
 from wfl.autoparallelize import RemoteInfo
 from expyre.resources import Resources
 
 import expyre
 expyre.config.init(root_dir=os.getcwd())
+
+
+def time_str_to_seconds(time_str):
+    t = datetime.strptime(time_str, "%H:%M:%S")
+    return t.hour * 3600 + t.minute * 60 + t.second
+
 
 def prepare_remote(max_time: int, n_cores: int, num_inputs_per_queued_job: int, job_name: str,
                    pre_cmds: list[str] = [], post_cmds: list[str] = [], input_files: list[str] = [],

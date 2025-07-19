@@ -6,7 +6,7 @@ from ase.calculators.emt import EMT
 from ase.calculators.espresso import EspressoProfile
 from wfl.calculators.espresso import Espresso
 
-from mlipflow.utils import prepare_remote
+from mlipflow.utils import prepare_remote, time_str_to_seconds
 #####################################################################
 
 
@@ -30,11 +30,10 @@ class EMTCalc(QChemStrategy):
 
 # Quantum Espresso DFT-strategy class
 class QECalculator(QChemStrategy):
-    def __init__(self, basic_params: str, pseudo_dir: str, max_time_sec: int) -> None:
+    def __init__(self, basic_params: str, pseudo_dir: str) -> None:
         super().__init__()
         self.basic_params = basic_params
         self.pseudo_dir = pseudo_dir
-        self.max_time_sec = max_time_sec
         self.pseudopotentials = {
             'Cu': 'Cu.pbe-dn-kjpaw_psl.1.0.0.UPF', 
             'O' : 'O.pbe-n-kjpaw_psl.1.0.0.UPF',
@@ -46,20 +45,41 @@ class QECalculator(QChemStrategy):
         
 
     def get_calculator(self, job_name, ecut_eV: int = 450, kpts: tuple = (3,3,1),
-                       dipole: bool = True, dftd3: bool = True):
+                       calc_type: str = 'scf', dipole: bool = True, dftd3: bool = True):
         """
         """
-        self.remote_info=prepare_remote(
-            max_time='01:15:00',
-            n_cores=32,
-            num_inputs_per_queued_job=3,
-            job_name=job_name,
-            sys_name='local_qe'
-        )
-        
-        input_data = self._prepare_params(ecut_eV=ecut_eV)
+        # prepare remote settings based on calculation type
+        assert calc_type in ['scf', 'relax'], f'Unknown calculation type: {calc_type}'
+        remote_settings = {
+            'scf': {
+                'max_time': '00:45:00',
+                'n_cores': 32,
+                'num_inputs_per_queued_job': 3,
+                'job_name': job_name,
+                'sys_name': 'local_qe'
+            },
+            'relax': {
+                'max_time': '03:15:00',
+                'n_cores': 32,
+                'num_inputs_per_queued_job': 1,
+                'job_name': job_name,
+                'sys_name': 'local_qe'
+            },
+        }
+        self.remote_info=prepare_remote(**remote_settings[calc_type])
+        self.max_time_sec = time_str_to_seconds(remote_settings[calc_type]['max_time'])
+        self.max_time_sec += 300 # add 5 minutes buffer
 
+        # prepare input-data for QE
+        input_data = self._prepare_params(ecut_eV=ecut_eV, calc=calc_type)
         assert input_data, 'parameters for QE missing'
+
+        # update calculation type
+        input_data['control']['calculation'] = calc_type
+
+        if calc_type == 'scf':
+            for para in ['nstep', 'etot_conv_thr', 'forc_conv_thr']:
+                input_data['control'].pop(para)
 
         # modify default-input removing Dipole or D3-correction
         if dipole == False:
@@ -94,12 +114,14 @@ class QECalculator(QChemStrategy):
         return calculator
 
 
-    def _prepare_params(self, ecut_eV: int, level='fine') -> dict:
+    def _prepare_params(self, ecut_eV: int, calc: str, level='fine') -> dict:
         """
         modifying input-file for Quantum Espresso (QE) pw.x computation
 
         Args:
             ecut      :  int in eV
+            calc      :  str, type of calculation, 'scf' or 'relax'
+            level     :  str, level of precision, 'fine' or 'normal'
         """        
         ecut_Ry = ecut_eV * units.eV / units.Ry
         
