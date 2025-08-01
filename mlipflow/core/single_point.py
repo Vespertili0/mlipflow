@@ -33,7 +33,9 @@ def run_single_point(in_file, out_file, output_prefix, calculator, remote_info=N
         )
 
 
-def run_chunked_sp(in_file, out_file, chunk_size, qchem_strategy, data_manager)->None:
+def run_chunked_sp(in_file, out_file, chunk_size, qchem_strategy, data_manager,
+                   ecut_eV: int = 450, kpts: tuple = (3,3,1),
+                   dipole: bool = True, dftd3: bool = True)->None:
     """
     Run a chunked single point calculation using the provided calculator.
     This function splits the input file into chunks of a specified size,
@@ -50,7 +52,13 @@ def run_chunked_sp(in_file, out_file, chunk_size, qchem_strategy, data_manager)-
             in_file=atoms,
             out_file=f'tmp_{n}.xyz',
             output_prefix=qchem_strategy.qe_prefix,
-            calculator=qchem_strategy.get_calculator(job_name='QE_'),
+            calculator=qchem_strategy.get_calculator(
+                job_name='QE_', 
+                ecut_eV=ecut_eV, 
+                kpts=kpts, 
+                dipole=dipole, 
+                dftd3=dftd3
+            ),
             remote_info=qchem_strategy.remote_info
         )
         data_manager.clean_up()

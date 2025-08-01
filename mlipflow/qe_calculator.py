@@ -45,16 +45,17 @@ class QECalculator(QChemStrategy):
         
 
     def get_calculator(self, job_name, ecut_eV: int = 450, kpts: tuple = (3,3,1),
-                       calc_type: str = 'scf', dipole: bool = True, dftd3: bool = True):
+                       calc_type: str = 'scf', dipole: bool = True, dftd3: bool = True,
+                       num_inputs_per_queued_job: int = 2) -> tuple:
         """
         """
         # prepare remote settings based on calculation type
         assert calc_type in ['scf', 'relax'], f'Unknown calculation type: {calc_type}'
         remote_settings = {
             'scf': {
-                'max_time': '00:45:00',
+                'max_time': '00:55:00',
                 'n_cores': 32,
-                'num_inputs_per_queued_job': 3,
+                'num_inputs_per_queued_job': num_inputs_per_queued_job,
                 'job_name': job_name,
                 'sys_name': 'local_qe'
             },
