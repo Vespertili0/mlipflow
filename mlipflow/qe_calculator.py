@@ -53,14 +53,14 @@ class QECalculator(QChemStrategy):
         assert calc_type in ['scf', 'relax'], f'Unknown calculation type: {calc_type}'
         remote_settings = {
             'scf': {
-                'max_time': '00:55:00',
+                'max_time': '01:25:00',
                 'n_cores': 32,
                 'num_inputs_per_queued_job': num_inputs_per_queued_job,
                 'job_name': job_name,
                 'sys_name': 'local_qe'
             },
             'relax': {
-                'max_time': '03:15:00',
+                'max_time': '06:25:00',
                 'n_cores': 32,
                 'num_inputs_per_queued_job': 1,
                 'job_name': job_name,

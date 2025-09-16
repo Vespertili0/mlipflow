@@ -34,7 +34,7 @@ def run_single_point(in_file, out_file, output_prefix, calculator, remote_info=N
 
 
 def run_chunked_sp(in_file, out_file, chunk_size, qchem_strategy, data_manager,
-                   ecut_eV: int = 450, kpts: tuple = (3,3,1),
+                   ecut_eV: int = 450, kpts: tuple = (3,3,1), num_inputs_per_queued_job: int = 2,
                    dipole: bool = True, dftd3: bool = True)->None:
     """
     Run a chunked single point calculation using the provided calculator.
@@ -57,7 +57,8 @@ def run_chunked_sp(in_file, out_file, chunk_size, qchem_strategy, data_manager,
                 ecut_eV=ecut_eV, 
                 kpts=kpts, 
                 dipole=dipole, 
-                dftd3=dftd3
+                dftd3=dftd3,
+                num_inputs_per_queued_job=num_inputs_per_queued_job
             ),
             remote_info=qchem_strategy.remote_info
         )
