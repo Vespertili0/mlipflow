@@ -120,7 +120,7 @@ class MACEModel(MLIPStrategy):
         #    valid_configs=None,                         # !!!
         #    test_configs=None,                          # !!!
             remote_info=prepare_remote(
-                max_time='02:00:00',
+                max_time='20:00:00',
                 n_cores=64,
                 num_inputs_per_queued_job=1,
                 job_name='MACEfit',

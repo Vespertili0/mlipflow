@@ -5,6 +5,7 @@ from ase import units
 from ase.calculators.emt import EMT
 from ase.calculators.espresso import EspressoProfile
 from wfl.calculators.espresso import Espresso
+from wfl.calculators.vasp import Vasp
 
 from mlipflow.utils import prepare_remote, time_str_to_seconds
 #####################################################################
@@ -45,7 +46,7 @@ class QECalculator(QChemStrategy):
         
 
     def get_calculator(self, job_name, ecut_eV: int = 450, kpts: tuple = (3,3,1),
-                       calc_type: str = 'scf', dipole: bool = True, dftd3: bool = True,
+                       calc_type: str = 'scf', dipole: bool = False, dftd3: bool = False, spin: bool = False,
                        num_inputs_per_queued_job: int = 2) -> tuple:
         """
         """
@@ -95,6 +96,15 @@ class QECalculator(QChemStrategy):
             for key in dftd3_paras.keys():
                 for para in dftd3_paras.get(key):
                     input_data[key].pop(para)
+
+        if spin == True:
+            input_data['system'].update(
+                {
+                    'nbnd': 628,
+                    'nspin': 2, 
+                    'starting_magnetization(1)': 0.263,    # for Cu     
+                }
+            )
         
         # set up ase-related QE-calculator
         profile = EspressoProfile(
@@ -127,10 +137,11 @@ class QECalculator(QChemStrategy):
         ecut_Ry = ecut_eV * units.eV / units.Ry
         
         if level == 'fine':
-            conv_thr = 60 * 2e-10
+            conv_thr = 7.4e-9   #60 * 2e-10
+            ecut_Ry = 64.97
             kps = 0.2
             kpts = None
-            degauss = 1.47e-02
+            degauss = 0.00735   #1.47e-02
 
         with open(self.basic_params, 'r') as f:
             qe_params = json.loads(f.read())
@@ -155,3 +166,65 @@ class QECalculator(QChemStrategy):
         )
         
         return qe_params
+    
+
+# VASP DFT-strategy class
+class VASPCalculator(QChemStrategy):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def get_calculator(self, job_name, encut: int = 450, kpts: tuple = (3,3,1), calc_type: str = 'scf'):
+        """
+        """
+        # prepare remote settings
+        assert calc_type in ['scf', 'opt'], f'Unknown calculation type: {calc_type}'
+        remote_settings = {
+            'scf': {
+                'max_time': '01:25:00',
+                'n_cores': 32,
+                'num_inputs_per_queued_job': 3,
+                'job_name': job_name,
+                'sys_name': 'local_qe',
+                'pre_cmds': ['module load vasp6/6.3.0'],
+                'input_files': ['/scratch/pawsey1161/sjeschke/pseudo/potpaw_PBE/C/POTCAR'],
+                'env_vars': [
+                    'ASE_VASP_COMMAND="run vasp_std"',
+                    'VASP_PP_PATH=/scratch/pawsey1161/sjeschke/pseudo'
+                    ]
+            },
+            'opt': {
+                'max_time': '06:25:00',
+                'n_cores': 32,
+                'num_inputs_per_queued_job': 1,
+                'job_name': job_name,
+                'sys_name': 'local_qe'
+            },
+        }        
+        self.remote_info=prepare_remote(**remote_settings[calc_type])
+        
+        # prepare calculator
+        calculator = (Vasp, [], {
+            "calculator_exec": "srun vasp_std",
+            "encut": encut,
+            "kpts": kpts,
+            "ibrion": 2,
+            "xc": "PBE",
+            "nsw": 0,
+            "ediff": 1e-06,   # stopping-criterion for ELM 1e-06 default
+            "ediffg": -0.05,  # stopping-criterion for IOM (all forces smaller 0.05 eV/Å)
+            "ispin": 1,
+            "ismear": 1,
+            "sigma": 0.05,    # smearing in eV
+            "lreal": "Auto",
+            # "potim": 0.5,   # step for ionic-motion (for MD in fs) — commented out
+            "lwave": False,
+            "lcharg": False,
+            "isym": 0,
+            "ivdw": 12,
+            "algo": "Fast",
+            "prec": "Normal",
+            "nelm": 80,
+            "txt": "vasp.out",
+            }
+        )
+        return calculator
