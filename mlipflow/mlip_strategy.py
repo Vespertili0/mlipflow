@@ -17,10 +17,10 @@ class MLIPStrategy(ABC):
     """
     Base class for MLIP strategy classes. It defines the interface for MLIPs implemented in the MLIPFlow package.
     """
-    def __init__(self, run_mode, mlip_file=None) -> None:
+    def __init__(self, mlip_name, run_mode) -> None:
         assert run_mode in ['local', 'remote'], 'run_mode is "local" or "remote"'
         self.run_mode = run_mode
-        self.mlip_file = mlip_file
+        self.mlip_name = mlip_name
 
 
     @abstractmethod
@@ -43,10 +43,10 @@ class MACEModel(MLIPStrategy):
                     If 'remote', the MACE model is submitted to run via wfl-RemoteInfo object.
     
     """
-    def __init__(self, mlip_file, run_mode='remote') -> None:
-        super().__init__(run_mode=run_mode, mlip_file=mlip_file)
-        self.mlip_prefix = 'MACE'
-        self.mlip_file = mlip_file
+    def __init__(self, mlip_name, mace_config, run_mode='remote') -> None:
+        super().__init__(run_mode=run_mode, mlip_name=mlip_name)
+        self.mlip_prefix = 'MACE_'
+        self.mace_config = mace_config
 
     def get_calculator(self, job_name):
         """
@@ -91,7 +91,7 @@ class MACEModel(MLIPStrategy):
             )      
         return calculator
     
-    def fit_new_model(self, in_file, model_name, run_dir, config_file) -> None:
+    def fit_new_model(self, in_file, seed=123, restart=False) -> None:
         """
         Run the wfl.fit.mace.fit function.
         Parameters
@@ -108,14 +108,21 @@ class MACEModel(MLIPStrategy):
         -------
         None, the selected files are written in the defined directory.
         """
-        with open(config_file) as param_json:
-            mace_config = json.load(param_json)
+        # load MACE fitting parameters from JSON file
+        with open(self.mace_config) as param_json:
+            mace_params = json.load(param_json)
         
+        # set random seed and restart option
+        mace_params['seed'] = seed
+        if restart:
+            mace_params['restart_latest'] = None
+
+        # run the MACE fitting
         mace_fit(
             fitting_configs=ConfigSet(in_file),
-            mace_name=model_name, 
-            mace_fit_params=mace_config,
-            run_dir=run_dir,
+            mace_name=self.mlip_name, 
+            mace_fit_params=mace_params,
+        #    run_dir=run_dir,
             ref_property_prefix='DFT_',
         #    valid_configs=None,                         # !!!
         #    test_configs=None,                          # !!!

@@ -1,5 +1,6 @@
-from typing import TypedDict
-from langgraph.graph import StateGraph, START, END
+from typing import TypedDict, Optional
+from dataclasses import dataclass
+from typing_extensions import NotRequired
 from mlipflow.core.single_point import run_single_point
 from mlipflow.structure_generator import StructureGenStrategy, MDGen
 from mlipflow.mlip_strategy import MLIPStrategy
@@ -7,37 +8,94 @@ from mlipflow.qe_calculator import QChemStrategy
 
 #####################################################
 
-
 class EnsembleState(TypedDict):
+    """State dictionary for the DFT-MACE fitting workflow    
+    Attributes:
+        configs (list[str]): List of configuration file paths
+        outfile (NotRequired[list[str]]): Optional output file paths
+        qchem_strategy (QChemStrategy): Quantum chemistry calculation strategy
+        mlip_strategy (MLIPStrategy): MLIP fitting strategy
+    """
     configs: list[str]
-    outfile: list[str] = None
+    outfile: NotRequired[list[str]]
+    qchem_strategy: QChemStrategy
+    mlip_strategy: MLIPStrategy
 
 
-def run_dft_sp(state, qchem_strategy: QChemStrategy):
+@dataclass
+class WorkflowError(Exception):
+    """Base exception for workflow errors"""
+    message: str
+    state: Optional[EnsembleState] = None
+
+
+def validate_state(state: EnsembleState, required_keys: list[str]) -> None:
+    """Validate state contains required keys with non-empty values"""
+    missing = [key for key in required_keys if not state.get(key)]
+    if missing:
+        raise WorkflowError(f"Missing required state keys: {missing}", state)
+
+
+def validate_workflow(workflow, initial_state: EnsembleState) -> None:
+    """Validate workflow configuration and initial state"""
+    # Validate nodes
+    required_nodes = {'dft_sp', 'train_mace'}
+    missing_nodes = required_nodes - set(workflow.nodes)
+    if missing_nodes:
+        raise ValueError(f"Missing required nodes: {missing_nodes}")
+        
+    # Validate initial state
+    validate_state(initial_state, ['configs', 'qchem_strategy', 'mlip_strategy'])
+
+
+def run_dft_sp(state: EnsembleState) -> EnsembleState:
+    """Run DFT single-point calculations on configurations.
     
-    run_single_point(
-        in_file=state['configs'],
-        out_file=state['outfile'],
-        output_prefix=qchem_strategy.qe_prefix,
-        calculator=qchem_strategy.get_calculator(
-            job_name='QE_',
-            ecut_eV=450,
-            kpts=(3,3,1),
-            calc_type='scf'
-        ),
-        remote_info=qchem_strategy.remote_info
-    )
-
-def prepare_train_test_sets(state, split_ratio=0.8):
-    pass
-
-def assess_n_select(state, n_select=100):
-    pass
-
-def run_mace_fit(state, mlip_strategy: MLIPStrategy):
-    mlip_strategy.fit_new_model(
-        in_file=state['configs'],
-        out_file='mace_model.out',
-        train_fraction=0.8
-    )
+    Args:
+        state (EnsembleState): Current workflow state
+        
+    Returns:
+        EnsembleState: Updated workflow state
+        
+    Raises:
+        KeyError: If required state keys are missing
+        ValueError: If configs list is empty
+    """
+    if not state.get('configs'):
+        raise ValueError("No configurations provided in state")
+        
+    configs = state['configs']
+    outfile = [xyz.replace('.xyz', '_dft.xyz') for xyz in configs]
     
+    try:   
+        run_single_point(
+            in_file=configs,
+            out_file=outfile,
+            output_prefix=state['qchem_strategy'].qe_prefix,
+            calculator=state['qchem_strategy'].get_calculator(
+                job_name='QE_',
+                ecut_eV=450,
+                kpts=(3,3,1),
+                calc_type='scf'
+            ),
+            remote_info=state['qchem_strategy'].remote_info
+        )
+    except Exception as e:
+        raise RuntimeError(f"DFT calculation failed: {str(e)}")
+ 
+    return {**state, 'configs': outfile, 'outfile': None}
+
+
+#def prepare_train_test_sets(state, split_ratio=0.8):
+#    pass
+#
+#def assess_n_select(state, n_select=100):
+#    pass
+
+def run_mace_fit(state: EnsembleState) -> EnsembleState:
+    configs = state['configs']
+
+    state['mlip_strategy'].fit_new_model(
+        in_file=configs
+    )
+    return state
