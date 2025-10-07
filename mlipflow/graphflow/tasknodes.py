@@ -1,11 +1,16 @@
+import logging
 from typing import TypedDict, Optional
 from dataclasses import dataclass
 from typing_extensions import NotRequired
-from mlipflow.core.single_point import run_single_point
+
+#from wfl.utils import logging
+from mlipflow.core.single_point import run_single_point, run_chunked_sp
+from mlipflow.core.calculate_error import calculate_mlip_error
 from mlipflow.structure_generator import StructureGenStrategy, MDGen
 from mlipflow.mlip_strategy import MLIPStrategy
 from mlipflow.qe_calculator import QChemStrategy
 
+logger = logging.getLogger(__name__)
 #####################################################
 
 class EnsembleState(TypedDict):
@@ -20,6 +25,7 @@ class EnsembleState(TypedDict):
     outfile: NotRequired[list[str]]
     qchem_strategy: QChemStrategy
     mlip_strategy: MLIPStrategy
+    structure_gen_strategy: NotRequired[StructureGenStrategy]
 
 
 @dataclass
@@ -80,7 +86,9 @@ def run_dft_sp(state: EnsembleState) -> EnsembleState:
             ),
             remote_info=state['qchem_strategy'].remote_info
         )
+        logger.debug(f"DFT calculations completed successfully")
     except Exception as e:
+        logger.error(f"DFT calculation failed: {str(e)}")
         raise RuntimeError(f"DFT calculation failed: {str(e)}")
  
     return {**state, 'configs': outfile, 'outfile': None}
@@ -89,13 +97,46 @@ def run_dft_sp(state: EnsembleState) -> EnsembleState:
 #def prepare_train_test_sets(state, split_ratio=0.8):
 #    pass
 #
-#def assess_n_select(state, n_select=100):
-#    pass
+def assess_n_select(state, n_select=100):
+    pass
 
 def run_mace_fit(state: EnsembleState) -> EnsembleState:
     configs = state['configs']
 
     state['mlip_strategy'].fit_new_model(
-        in_file=configs
+        in_file=configs,
+        seed=123, 
+        restart=False
     )
     return state
+
+
+def run_structure_generation(state: EnsembleState) -> EnsembleState:
+    if 'structure_gen_strategy' not in state:
+        raise KeyError("structure_gen_strategy not found in state")
+    
+    if not state.get('configs'):
+        raise ValueError("No configurations provided in state")
+    
+    new_outfile = 'new_structures.xyz'
+    state['structure_gen_strategy'].generate_new_structures(
+        in_file=state['configs'],
+        out_file=new_outfile,
+        calculator=state['mlip_strategy'].get_calculator(
+            job_name='mMP_',
+            ),
+        remote_info=state['mlip_strategy'].remote_info
+    )
+    return {**state, 'configs': [new_outfile], 'outfile': None}
+
+
+def evalute_mlip_error(state: EnsembleState) -> EnsembleState:
+
+    if not state.get('configs'):
+        raise ValueError("No configurations provided in state")
+    calculate_mlip_error(
+        in_configs=state['configs'],
+        out_file='error_analysis.xyz',
+        calc_property_prefix=state['mlip_strategy'].mlip_prefix,
+        fig_dir='.'
+        )

@@ -5,7 +5,18 @@ from wfl.configset import ConfigSet, OutputSpec
 
 # manage incoming/outgoing data
 class DataManager:
-    def __init__(self, workdir) -> None:
+    """
+    Manages data and file operations for ML Interatomic Potential (MLIP) training.
+    
+    Handles file organization, data preprocessing, and structure management for
+    iterative MLIP training workflows.
+    
+    Attributes:
+        workdir (str): Working directory for all operations
+        files (dict): Dictionary of file paths
+        mlip_file_fmt (dict): File format mappings for different MLIP types
+    """
+    def __init__(self, workdir: str) -> None:
         self.workdir = workdir
         self.files = {}
         self.mlip_file_fmt = {
@@ -70,26 +81,23 @@ class DataManager:
         )
 
     def initialise_ensembles(self, ensemble_traj: str) -> None:
-        """
-        Function copying provided ase-traj file of ensemble to xyz-format.
-        The xyz-file is used for the training of the MLIP, while the traj-file is used for the exploration.
-        """
-        shutil.copy2(
-            ensemble_traj, 
-            self.files.get("ensemble_traj")
-        )
-        write(
-            self.files.get("ensemble_xyz"),
-            read(self.files.get("ensemble_traj"), ':')
-        )
+        """Initialize ensemble from trajectory file."""
+        if not os.path.exists(ensemble_traj):
+            raise FileNotFoundError(f"Ensemble trajectory file {ensemble_traj} not found")
+        try:
+            shutil.copy2(ensemble_traj, self.files.get("ensemble_traj"))
+            configs = read(self.files.get("ensemble_traj"), ':')
+            write(self.files.get("ensemble_xyz"), configs)
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize ensembles: {str(e)}")
     
-    def move_mace_model_file(self, mlip_prefix: str) -> None:
+    def move_mace_model_file(self, file_prefix: str) -> None:
         """
         Function to move the compiled MACE model file to the MLIP directory.
         """
         shutil.copy2(
-            os.path.join(self.MLIP_dir, 'MACE_model', f'{mlip_prefix}_compiled.model'),
-            os.path.join(self.MLIP_dir, f'{mlip_prefix}.model')
+            os.path.join(self.MLIP_dir, 'MACE_model', f'{file_prefix}_compiled.model'),
+            os.path.join(self.MLIP_dir, f'{file_prefix}.model')
         )
 
     def check_maxforce_and_cleanarrays(self, in_file, out_file, mlip_prefix, calc, max_force=15):
@@ -205,9 +213,12 @@ class DataManager:
         try:
             run_dirs = [rd for rd in os.listdir() if key in rd]
             for rd in run_dirs:
-                shutil.rmtree(rd)
-        except:
-            pass
+                if os.path.isdir(rd):
+                    shutil.rmtree(rd)
+                elif os.path.isfile(rd):
+                    os.remove(rd)
+        except Exception as e:
+            raise RuntimeError(f"Error removing {rd}: {e}")
 
     
     def _create_folder_structure(self, fit_idx):
@@ -219,3 +230,12 @@ class DataManager:
         for folder in [self.ensemble_dir, self.SGen_dir, self.MLIP_dir]:
             os.makedirs(folder, exist_ok=True)
     
+    @property
+    def ensemble_dir(self) -> str:
+        """Path to ensemble directory."""
+        return os.path.join(self.workdir, 'ENSEMBLE')
+    
+    @property 
+    def mlip_dir(self) -> str:
+        """Path to MLIP directory."""
+        return os.path.join(self.iter_dir, 'MLIP')

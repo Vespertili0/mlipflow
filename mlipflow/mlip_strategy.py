@@ -60,7 +60,7 @@ class MACEModel(MLIPStrategy):
                 MACECalculator,
                 [], 
                 {
-                    'model_paths': os.path.abspath(self.mlip_file),
+                    'model_paths': os.path.abspath(self.mlip_name),
                     'device': 'cpu',
                     'default_dtype': 'float64',
                     'dispersion': True
@@ -83,7 +83,7 @@ class MACEModel(MLIPStrategy):
                 {
                     'keep_files': None,
                     'rundir_prefix': 'MACE_',
-                    'model_paths': os.path.abspath(self.mlip_file),
+                    'model_paths': os.path.abspath(self.mlip_name),
                     'device': 'cpu',
                     'default_dtype': 'float64',
                     'dispersion': True
