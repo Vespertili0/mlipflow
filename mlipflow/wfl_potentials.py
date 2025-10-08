@@ -8,7 +8,7 @@ from quippy.potential import Potential
 
 # NOMAD compatible, see https://nomad-lab.eu/prod/rae/gui/uploads
 _default_keep_files = ["*.out"]
-_default_properties = ["energy", "forces", "stress"]
+_default_properties = ["energy", "forces"] #, "stress"
 
 # calculator classes for remote jobs
 class GAPCalc(WFLFileIOCalculator, Potential):
@@ -43,7 +43,7 @@ class GAPCalc(WFLFileIOCalculator, Potential):
 
 class MACECalc(WFLFileIOCalculator, MACECalculator):
     """
-
+    Calculator class for MACE potentials that integrates with WFL workflows
     """
     def __init__(self, keep_files='default', rundir_prefix='run_MACE_', workdir=None, scratchdir=None, **kwargs):
         
@@ -58,7 +58,7 @@ class MACECalc(WFLFileIOCalculator, MACECalculator):
             self.atoms = atoms.copy()
         
         # from WFLFileIOCalculator
-        #self.setup_rundir()
+        self.setup_rundir()
 
         try:
             super().calculate(atoms=atoms, properties=properties, system_changes=system_changes)
@@ -69,9 +69,9 @@ class MACECalc(WFLFileIOCalculator, MACECalculator):
             atoms.info['FAILED_MACE'] = True
             calculation_succeeded = False
             raise exc
-#        finally:
-#            # from WFLFileIOCalculator
-#            self.clean_rundir(_default_keep_files, calculation_succeeded)        
+        finally:
+            # from WFLFileIOCalculator
+            self.clean_rundir(_default_keep_files, calculation_succeeded)        
 
 
 ###############################################################################################################

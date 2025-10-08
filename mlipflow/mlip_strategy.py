@@ -9,7 +9,7 @@ from wfl.fit.mace import fit as mace_fit
 from mace.calculators import MACECalculator
 
 from mlipflow.utils import prepare_remote
-from mlipflow.wfl_potentials import GAPCalc, MACECalc
+from mlipflow.wfl_potentials import GAPCalc
 #####################################################################
 
 # Base Strategy class for MLIP approach
@@ -53,42 +53,42 @@ class MACEModel(MLIPStrategy):
         It returns the MACE-calculator as tuple with the ase-calculator class, arguments and keyword arguments.
         Creates the remote_info object if run_mode is 'remote'.
         """
+        calculator = (
+            MACECalculator,
+            [], 
+            {
+                'model_paths': os.path.abspath(self.mlip_name),
+                'device': 'cpu',
+                'default_dtype': 'float64',
+                'dispersion': True
+            }
+        )        
+
         if self.run_mode == 'local':
             self.remote_info = None
 
-            calculator = (
-                MACECalculator,
-                [], 
-                {
-                    'model_paths': os.path.abspath(self.mlip_name),
-                    'device': 'cpu',
-                    'default_dtype': 'float64',
-                    'dispersion': True
-                }
-            )
-
         elif self.run_mode == "remote":
             self.remote_info = prepare_remote(
-                max_time='00:10:00', 
+                max_time='01:30:00', 
                 n_cores=1,
-                num_inputs_per_queued_job=5,
+                num_inputs_per_queued_job=20,
                 job_name=job_name,
-#                pre_cmds=['export OMP_NUM_THREADS=1']
+#                pre_cmds=['export WFL_NUM_PYTHON_SUBPROCESSES=5']
 #                sys_name='local_mace'
             )            
 
-            calculator = (
-                MACECalc, 
-                [], 
-                {
-                    'keep_files': None,
-                    'rundir_prefix': 'MACE_',
-                    'model_paths': os.path.abspath(self.mlip_name),
-                    'device': 'cpu',
-                    'default_dtype': 'float64',
-                    'dispersion': True
-                }
-            )      
+#            calculator = (
+#                MACECalculator, #MACECalc, 
+#                [], 
+#                {
+#                    #'keep_files': None,
+#                    #'rundir_prefix': 'MACE_',
+#                    'model_paths': os.path.abspath(self.mlip_name),
+#                    'device': 'cpu',
+#                    'default_dtype': 'float64',
+#                    'dispersion': True
+#                }
+#            )      
         return calculator
     
     def fit_new_model(self, in_file, seed=123, restart=False) -> None:

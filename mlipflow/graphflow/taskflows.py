@@ -24,6 +24,13 @@ def create_dft_fit_graphflow(initial_state: dict):
     return workflow.invoke(initial_state)
 
 
+def execute_mlip_structure_generation_block(initial_state:dict):
+    """
+    Workflow to generate new structures via MLIP MD/OPT/DyNEB.
+    """
+    pass
+
+
 def execute_dft_single_point_block(initial_state:dict):
     """
     Workflow to prepare, run, postprocess DFT single-point calculations.

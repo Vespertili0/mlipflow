@@ -142,7 +142,16 @@ def merge_clean_chunks(in_files: list, out_file: str) -> None:
 
 
 def clean_up(key: str = '_chunk_') -> None:
-    """Clean up directories and files matching the key."""
+    """
+    Clean up directories and files matching the key.
+    
+    Args:
+        key (str): Substring to identify files/directories to remove.
+    Raises:
+        RuntimeError: If an error occurs during removal.
+    Returns:
+        None
+    """
     try:
         run_dirs = [rd for rd in os.listdir() if key in rd]
         for rd in run_dirs:

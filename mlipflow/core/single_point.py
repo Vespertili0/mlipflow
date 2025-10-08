@@ -2,6 +2,7 @@ from wfl.configset import ConfigSet, OutputSpec
 from wfl.calculators.generic import calculate as generic_calc
 from wfl.autoparallelize import AutoparaInfo
 from ase.io import read
+from mlipflow.data import clean_up, merge_clean_chunks
 
 
 def run_single_point(in_file, out_file, output_prefix, calculator, remote_info=None):
@@ -33,7 +34,7 @@ def run_single_point(in_file, out_file, output_prefix, calculator, remote_info=N
         )
 
 
-def run_chunked_sp(in_file, out_file, chunk_size, qchem_strategy, data_manager,
+def run_chunked_qe_sp(in_file, out_file, chunk_size, qchem_strategy,
                    ecut_eV: int = 450, kpts: tuple = (3,3,1), num_inputs_per_queued_job: int = 2,
                    dipole: bool = False, dftd3: bool = False)->None:
     """
@@ -62,16 +63,16 @@ def run_chunked_sp(in_file, out_file, chunk_size, qchem_strategy, data_manager,
             ),
             remote_info=qchem_strategy.remote_info
         )
-        data_manager.clean_up()
+        clean_up()
     
     # merge all chunks into one file
-    data_manager.merge_clean_chunks(
+    merge_clean_chunks(
         in_files=chunk_files,
         out_file=out_file
     )
     
     # remove the temporary files
-    data_manager.clean_up(key='tmp_')
+    clean_up(key='tmp_')
 
 
 def _chunk_indices(in_file: str, chunk_size:int = 150)->list:
