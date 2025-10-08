@@ -24,11 +24,21 @@ def create_dft_fit_graphflow(initial_state: dict):
     return workflow.invoke(initial_state)
 
 
-def execute_mlip_structure_generation_block(initial_state:dict):
+def execute_mlip_structure_generation_block():
     """
     Workflow to generate new structures via MLIP MD/OPT/DyNEB.
     """
-    pass
+    graph = StateGraph(EnsembleState)
+
+    graph.add_node('gen_structs', run_mlip_structure_generation)
+    graph.add_node('mlip_sp', run_mlip_sp)
+
+    graph.add_edge(START, 'gen_structs')
+    graph.add_edge('gen_structs', 'mlip_sp')
+
+    graph.set_entry_point('gen_structs')
+    graph.set_finish_point('mlip_sp')
+    return graph.compile()
 
 
 def execute_dft_single_point_block(initial_state:dict):
@@ -37,7 +47,7 @@ def execute_dft_single_point_block(initial_state:dict):
     """
     graph = StateGraph(EnsembleState)
 
-    graph.add_node('gen_structs', run_structure_generation)
+    graph.add_node('gen_structs', run_mlip_structure_generation)
     graph.add_node('dft_sp', run_dft_sp)
     graph.add_node('assess&select', assess_n_select)
     graph.add_node('train_mace', run_mace_fit)
@@ -60,7 +70,7 @@ def execute_mlip_training_block(initial_state:dict):
     """
     graph = StateGraph(EnsembleState)
 
-    graph.add_node('prepare_data', prepare_train_test_sets)
+    #graph.add_node('prepare_data', prepare_train_test_sets)
     graph.add_node('train_mace', run_mace_fit)
     graph.add_node('', )
 

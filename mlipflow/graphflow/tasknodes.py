@@ -7,7 +7,7 @@ from typing_extensions import NotRequired
 from mlipflow.data import *
 from mlipflow.core.single_point import run_single_point, run_chunked_qe_sp
 from mlipflow.core.calculate_error import calculate_mlip_error
-from mlipflow.structure_generator import StructureGenStrategy, MDGen
+from mlipflow.structure_generator import StructureGenStrategy
 from mlipflow.mlip_strategy import MLIPStrategy
 from mlipflow.qe_calculator import QChemStrategy
 
@@ -114,7 +114,7 @@ def run_dft_sp_block(state: EnsembleState) -> EnsembleState:
         raise ValueError("No configurations provided in state")
         
     configs = state['configs']
-    outfile = [xyz.replace('.xyz', '_dft.xyz') for xyz in configs]
+    outfile = [xyz.replace('.xyz', '.dft.xyz') for xyz in configs]
     
     try:   
         run_chunked_qe_sp(
@@ -147,8 +147,6 @@ def clean_dft_data(state: EnsembleState) -> EnsembleState:
     """
     check_maxforce_and_cleanarrays
 
-    
-
 
 def run_mlip_sp(state: EnsembleState) -> EnsembleState:
     """Run MLIP single-point calculations on configurations.
@@ -163,19 +161,24 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
     """
     if not state.get('configs'):
         raise ValueError("No configurations provided in state")
-        
+    
+    if 'mlip_strategy' not in state:
+        raise KeyError("mlip_strategy not found in state")
+
+    mlip = state['mlip_strategy'] 
     configs = state['configs']
-    outfile = [xyz.replace('.xyz', '_mlip.xyz') for xyz in configs]
+    outfile = [xyz.replace('.xyz', '.mace.xyz') for xyz in configs]
     
     try:   
         run_single_point(
             in_file=configs,
             out_file=outfile,
-            output_prefix=state['mlip_strategy'].mlip_prefix,
-            calculator=state['mlip_strategy'].get_calculator(
+            output_prefix=mlip.mlip_prefix,
+            calculator=mlip.get_calculator(
                 job_name='mSP_',
+                dispersion=False
                 ),
-            remote_info=state['mlip_strategy'].remote_info
+            remote_info=mlip.remote_info
         )
         logger.debug(f"MLIP calculations completed successfully")
     except Exception as e:
@@ -189,8 +192,8 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
 #    pass
 
 
-def assess_n_select(state, n_select=100):
-    pass
+#def assess_n_select(state, n_select=100):
+#    pass
 
 
 def run_mace_fit(state: EnsembleState) -> EnsembleState:
@@ -204,29 +207,40 @@ def run_mace_fit(state: EnsembleState) -> EnsembleState:
     return state
 
 
-def run_structure_generation(state: EnsembleState) -> EnsembleState:
+def run_mlip_structure_generation(state: EnsembleState) -> EnsembleState:
+    """Generate new structures via MLIP MD/OPT/DyNEB."""
+
+    if 'mlip_strategy' not in state:
+        raise KeyError("mlip_strategy not found in state")
+    
     if 'structure_gen_strategy' not in state:
         raise KeyError("structure_gen_strategy not found in state")
     
     if not state.get('configs'):
         raise ValueError("No configurations provided in state")
     
-    new_outfile = 'new_structures.xyz'                                # !!! TODO: naming convention
+    mlip = state['mlip_strategy']
+    structure_generator = state['structure_gen_strategy']
+    configs = state['configs']
+    outfile = [
+        xyz.replace('.', f'_{structure_generator.calc_prefix}.') for xyz in configs
+    ]
     try:
-        state['structure_gen_strategy'].generate_new_structures(
-            in_file=state['configs'],
-            out_file=new_outfile,
-            calculator=state['mlip_strategy'].get_calculator(
-                job_name='mMP_',
+        structure_generator.generate_new_structures(
+            in_file=configs,
+            out_file=outfile,
+            calculator=mlip.get_calculator(
+                job_name='mSG_',
+                dispersion=True
                 ),
-            remote_info=state['mlip_strategy'].remote_info
+            remote_info=mlip.remote_info
         )
 
     except Exception as e:
         logger.error(f"Structure generation failed: {str(e)}")
         raise RuntimeError(f"Structure generation failed: {str(e)}")
     
-    return {**state, 'configs': [new_outfile], 'outfile': None}
+    return {**state, 'configs': [outfile], 'outfile': None}
 
 
 #def evalute_mlip_error(state: EnsembleState) -> EnsembleState:

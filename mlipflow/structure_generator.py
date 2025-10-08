@@ -13,6 +13,7 @@ from mlipflow.wfl_potentials import ForceCheck, select_config
 class StructureGenStrategy(ABC):
     def __init__(self) -> None:
         super().__init__()
+        self.calc_prefix = 'base'
 
     @abstractmethod
     def generate_new_structures(self):
@@ -27,6 +28,7 @@ class MDGen(StructureGenStrategy):
         self.uncertainty_thrs = uncertainty_thrs
         self.n_failed_steps = n_failed_steps
         self.md_params = md_params
+        self.calc_prefix = 'md'
     
     def generate_new_structures(self, in_file, out_file, calculator, remote_info=None) -> None:
         """
@@ -80,9 +82,9 @@ class OPTGen(StructureGenStrategy):
         super().__init__()
         self.traj_subselect = traj_subselect
         self.opt_params = opt_params
+        self.calc_prefix = 'opt'
 
-    def generate_new_structures(self, in_file, out_file, calculator,
-                                remote_info=None) -> None:
+    def generate_new_structures(self, in_file, out_file, calculator, remote_info=None) -> None:
         """
         Generates new configs via the wfl.generate_configs.optimize run function.
 
@@ -122,7 +124,7 @@ class OPTGen(StructureGenStrategy):
                 traj_subselect=self.traj_subselect,
                 autopara_info=AutoparaInfo(
                     remote_info=remote_info,
-                    num_inputs_per_python_subprocess=1
+                    num_inputs_per_python_subprocess=2
                 ),
                 **self.opt_params
             )
@@ -131,6 +133,7 @@ class OPTGen(StructureGenStrategy):
 class NEBGen(StructureGenStrategy):
     def __init__(self) -> None:
         super().__init__()
+        self.calc_prefix = 'neb'
 
     def generate_new_structures(self) -> None:
         pass
