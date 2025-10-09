@@ -2,7 +2,9 @@ import os
 import shutil
 import numpy as np
 from ase.io import read, write
+from ase import Atoms
 from wfl.configset import ConfigSet, OutputSpec
+from wfl.map import map as wfl_map
 
 #def create_folder_structure(workdir: str, fit_idx: int) -> tuple[str, str, str, str]:
 #    """Create folder structure for MLIP training."""
@@ -95,8 +97,34 @@ def check_maxforce_and_cleanarrays(in_file: str, out_file: str, mlip_prefix: str
 
     write(out_file, selected_configs)
 
+def _rename_configset_tags(at, old_tag, new_tag, tag_type='info') -> Atoms:
+    """Function to rename tags in a wfl.configset ConfigSet object using wfl.map-function"""
+    assert tag_type in ['array', 'info'], 'invalid tag'
+    if tag_type == 'array':
+        at.arrays = {
+            (new_tag if key == old_tag else key): v for key, v in at.arrays.items()
+        }
+    elif tag_type == 'info':
+        at.info = {
+            (new_tag if key == old_tag else key): v for key, v in at.info.items()
+        }
+    return at
 
-def update_configset_tag(in_config, out_file, tag_dict) -> None:
+
+def update_configset_tag(in_config, out_file, tag_dict, tag_type) -> None:
+    """Update tags in a wfl.configset ConfigSet object using wfl.map-function."""
+    configs = ConfigSet(in_config)
+    output = OutputSpec(out_file, overwrite=True)
+    for old_tag, new_tag in tag_dict.items():
+        wfl_map(
+            inputs=configs, 
+            outputs=output,
+            map_func=_rename_configset_tags,
+            args=[old_tag, new_tag, tag_type]
+        )
+
+
+def add_configset_tag(in_config, out_file, tag_dict) -> None:
     """Update a wfl.configset with a new tag."""
     configs = ConfigSet(in_config)
     OutputSpec(out_file, tags=tag_dict, overwrite=True).write(configs)

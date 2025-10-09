@@ -235,12 +235,19 @@ def run_mlip_structure_generation(state: EnsembleState) -> EnsembleState:
                 ),
             remote_info=mlip.remote_info
         )
+        tag_dict={
+            'info':{'last_op__optimize_energy': f'{mlip.mlip_prefix}energy'},
+            'array':{'last_op__optimize_forces': f'{mlip.mlip_prefix}forces'}
+        }
+        for tag_type, tags in tag_dict.items():
+            for xyz in outfile:
+                update_configset_tag(in_config=xyz, out_file=xyz, tag_dict=tags, tag_type=tag_type)
 
     except Exception as e:
         logger.error(f"Structure generation failed: {str(e)}")
         raise RuntimeError(f"Structure generation failed: {str(e)}")
     
-    return {**state, 'configs': [outfile], 'outfile': None}
+    return {**state, 'configs': outfile, 'outfile': None}
 
 
 #def evalute_mlip_error(state: EnsembleState) -> EnsembleState:
