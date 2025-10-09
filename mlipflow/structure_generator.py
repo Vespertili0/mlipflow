@@ -5,7 +5,8 @@ from wfl.configset import ConfigSet, OutputSpec
 from wfl.autoparallelize import AutoparaInfo
 
 from wfl.generate.md import md as sample_md
-from wfl.generate.optimize import optimize as optimize
+#from wfl.generate.optimize import optimize as optimize
+from mlipflow.core.relaxation_fire import optimize
 from mlipflow.wfl_potentials import ForceCheck, select_config
 #####################################################################
 
@@ -109,8 +110,8 @@ class OPTGen(StructureGenStrategy):
 
         if remote_info is None:
             optimize(
-                in_config,
-                out_config,
+                inputs=in_config,
+                outputs=out_config, 
                 calculator=calculator, 
                 traj_subselect=self.traj_subselect,
                 **self.opt_params
@@ -118,8 +119,8 @@ class OPTGen(StructureGenStrategy):
 
         elif remote_info:
             optimize(
-                in_config,
-                out_config, 
+                inputs=in_config,
+                outputs=out_config, 
                 calculator=calculator,
                 traj_subselect=self.traj_subselect,
                 autopara_info=AutoparaInfo(
