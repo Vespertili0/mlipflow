@@ -192,8 +192,14 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
 #    pass
 
 
-#def assess_n_select(state, n_select=100):
-#    pass
+def assess_n_select(state: EnsembleState) -> EnsembleState:
+    configs = state['configs']
+    split_configset_by_force_agreement(
+        in_file=configs,
+        out_file=configs,
+        pair_tuple=({state["qchem_strategy"].qe_prefix}, {state["mlip_strategy"].mlip_prefix})
+    )
+    return state
 
 
 def run_mace_fit(state: EnsembleState) -> EnsembleState:

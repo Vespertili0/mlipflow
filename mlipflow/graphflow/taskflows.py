@@ -49,18 +49,13 @@ def execute_dft_single_point_block(initial_state:dict):
 
     graph.add_node('dft_sp', run_dft_sp)
     graph.add_node('assess&select', assess_n_select)
-    graph.add_node('train_mace', run_mace_fit)
 
     graph.add_edge(START, 'dft_sp')
-    graph.add_edge('dft_sp', 'train_mace')
+    graph.add_edge('dft_sp', 'assess&select')
 
     graph.set_entry_point('dft_sp')
-    graph.set_finish_point('train_mace')
-    workflow = graph.compile()
-
-    validate_workflow(workflow, initial_state)
-
-    return workflow
+    graph.set_finish_point('assess&select')
+    return graph.compile()
 
 
 def execute_mlip_training_block(initial_state:dict):
