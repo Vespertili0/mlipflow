@@ -47,7 +47,6 @@ def execute_dft_single_point_block(initial_state:dict):
     """
     graph = StateGraph(EnsembleState)
 
-    graph.add_node('gen_structs', run_mlip_structure_generation)
     graph.add_node('dft_sp', run_dft_sp)
     graph.add_node('assess&select', assess_n_select)
     graph.add_node('train_mace', run_mace_fit)

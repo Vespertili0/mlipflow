@@ -1,5 +1,8 @@
-import os, itertools, json
+import os, itertools, json, torch
 from abc import ABC, abstractmethod
+
+from torch_dftd.torch_dftd3_calculator import TorchDFTD3Calculator
+from ase.calculators.mixing import SumCalculator
 
 from universalSOAP import SOAP_hypers
 from quippy.potential import Potential
@@ -53,17 +56,6 @@ class MACEModel(MLIPStrategy):
         It returns the MACE-calculator as tuple with the ase-calculator class, arguments and keyword arguments.
         Creates the remote_info object if run_mode is 'remote'.
         """
-        calculator = (
-            MACECalculator,
-            [], 
-            {
-                'model_paths': os.path.abspath(self.mlip_name),
-                'device': 'cpu',
-                'default_dtype': dtype,
-                'dispersion': dispersion
-            }
-        )        
-
         if self.run_mode == 'local':
             self.remote_info = None
 
@@ -75,22 +67,37 @@ class MACEModel(MLIPStrategy):
                 job_name=job_name,
 #                pre_cmds=['export WFL_NUM_PYTHON_SUBPROCESSES=5']
 #                sys_name='local_mace'
-            )            
-
-#            calculator = (
-#                MACECalculator, #MACECalc, 
-#                [], 
-#                {
-#                    #'keep_files': None,
-#                    #'rundir_prefix': 'MACE_',
-#                    'model_paths': os.path.abspath(self.mlip_name),
-#                    'device': 'cpu',
-#                    'default_dtype': 'float64',
-#                    'dispersion': True
-#                }
-#            )      
-        return calculator
+            )
+              
+        if dispersion == False:
+            calculator = (
+                MACECalculator,
+                [], 
+                {
+                    'model_paths': os.path.abspath(self.mlip_name),
+                    'device': 'cpu',
+                    'default_dtype': dtype,
+                #    'dispersion': dispersion
+                }
+            )
+        
+        elif dispersion == True:
+            mace_calc = MACECalculator(
+                model_paths=os.path.abspath(self.mlip_name),
+                device='cpu',
+                default_dtype=dtype,
+            )
+            dftd3_calc = TorchDFTD3Calculator(
+                damping='bj',   #"zero", "bj", "zerom", "bjm"
+                old=False,      # False = use DFTD3 method, True = DFTD2
+                device='cpu',
+                dtype=torch.float32 if dtype == "float32" else torch.float64
+            )
+            calculator = (SumCalculator, [], {'calcs': [mace_calc, dftd3_calc]})
+            
+        return calculator 
     
+
     def fit_new_model(self, in_file, seed=123, restart=False) -> None:
         """
         Run the wfl.fit.mace.fit function.
