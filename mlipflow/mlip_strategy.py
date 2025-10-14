@@ -50,6 +50,7 @@ class MACEModel(MLIPStrategy):
         super().__init__(run_mode=run_mode, mlip_name=mlip_name)
         self.mlip_prefix = 'MACE_'
         self.mace_config = mace_config
+        self.model_file = f"{mlip_name}.model"
 
     def get_calculator(self, job_name, dispersion=True, dtype='float32'):
         """
@@ -74,7 +75,7 @@ class MACEModel(MLIPStrategy):
                 MACECalculator,
                 [], 
                 {
-                    'model_paths': os.path.abspath(self.mlip_name),
+                    'model_paths': os.path.abspath(self.model_file),
                     'device': 'cpu',
                     'default_dtype': dtype,
                 #    'dispersion': dispersion
@@ -83,7 +84,7 @@ class MACEModel(MLIPStrategy):
         
         elif dispersion == True:
             mace_calc = MACECalculator(
-                model_paths=os.path.abspath(self.mlip_name),
+                model_paths=os.path.abspath(self.model_file),
                 device='cpu',
                 default_dtype=dtype,
             )
@@ -98,19 +99,15 @@ class MACEModel(MLIPStrategy):
         return calculator 
     
 
-    def fit_new_model(self, in_file, seed=123, restart=False) -> None:
+    def fit_new_model(self, in_file, test_configs, ref_property_prefix='DFT_',
+                      seed=123, restart=False, n_cores=128, max_time='10:00:00') -> None:
         """
         Run the wfl.fit.mace.fit function.
         Parameters
         ----------
         in_file:                str
             Path to file containing the input configs for the MACE fit
-        model_name:             str
-            File name of written MACE model
-        run_dir:                str, default='MACE'
-            Name of the directory in which the MACE files will be written
-        config_file:            str
-            Path to the JSON file containing MACE fitting parameters
+
         Returns
         -------
         None, the selected files are written in the defined directory.
@@ -127,15 +124,15 @@ class MACEModel(MLIPStrategy):
         # run the MACE fitting
         mace_fit(
             fitting_configs=ConfigSet(in_file),
+            test_configs=ConfigSet(test_configs),
             mace_name=self.mlip_name, 
             mace_fit_params=mace_params,
-        #    run_dir=run_dir,
-            ref_property_prefix='DFT_',
-        #    valid_configs=None,                         # !!!
-        #    test_configs=None,                          # !!!
+            ref_property_prefix=ref_property_prefix,
+        #    run_dir=run_dir,            
+        #    valid_configs=ConfigSet(valid_configs),
             remote_info=prepare_remote(
-                max_time='20:00:00',
-                n_cores=64,
+                max_time=max_time,
+                n_cores=n_cores,
                 num_inputs_per_queued_job=1,
                 job_name='MACEfit',
                 sys_name='local_mace'

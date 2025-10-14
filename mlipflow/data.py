@@ -192,7 +192,7 @@ def clean_up(key: str = '_chunk_') -> None:
         raise RuntimeError(f"Error removing {rd}: {e}")
     
 
-def split_configset_by_force_agreement(in_file, out_file, pair_tuple, main_suffix='train', side_suffix='valid') -> None:
+def split_configset_by_force_agreement(in_file, out_file, pair_tuple, main_suffix='train', side_suffix='test') -> None:
     """
     Split a ConfigSet into two parts based on force agreement between two force keys.
     
@@ -211,7 +211,7 @@ def split_configset_by_force_agreement(in_file, out_file, pair_tuple, main_suffi
         Names of the two force arrays to compare, e.g. ('DFT', 'MACE').
     main_suffix : str, default='train'
         Suffix for the main split output file.
-    side_suffix : str, default='valid'
+    side_suffix : str, default='test'
         Suffix for the side split output file.
     
     """
@@ -222,7 +222,7 @@ def split_configset_by_force_agreement(in_file, out_file, pair_tuple, main_suffi
     force_mae = []
     for at in configs:
         force_mae.append(
-            np.mean(np.abs(at.arrays[f'{pair_tuple[0]}forces'] - at.arrays[f'{pair_tuple[1]}_forces'])))
+            np.mean(np.abs(at.arrays[f'{pair_tuple[0]}forces'] - at.arrays[f'{pair_tuple[1]}forces'])))
     n_total = len(force_mae)
 
     # find top 20% group using quantile

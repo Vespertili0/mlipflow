@@ -1,28 +1,6 @@
-from langgraph.graph import StateGraph, START
+from langgraph.graph import StateGraph, START, END
 from mlipflow.graphflow.tasknodes import *
 from mlipflow.data import *
-
-# test function
-def create_dft_fit_graphflow(initial_state: dict):
-    """
-    Test function.
-    """
-    graph = StateGraph(EnsembleState)
-
-    graph.add_node('dft_sp', run_dft_sp)
-    graph.add_node('train_mace', run_mace_fit)
-
-    graph.add_edge(START, 'dft_sp')
-    graph.add_edge('dft_sp', 'train_mace')
-
-    graph.set_entry_point('dft_sp')
-    graph.set_finish_point('train_mace')
-    workflow = graph.compile()
-
-    validate_workflow(workflow, initial_state)
-
-    return workflow.invoke(initial_state)
-
 
 def execute_mlip_structure_generation_block():
     """
@@ -35,13 +13,12 @@ def execute_mlip_structure_generation_block():
 
     graph.add_edge(START, 'gen_structs')
     graph.add_edge('gen_structs', 'mlip_sp')
+    graph.add_edge('mlip_sp', END)
 
-    graph.set_entry_point('gen_structs')
-    graph.set_finish_point('mlip_sp')
     return graph.compile()
 
 
-def execute_dft_single_point_block(initial_state:dict):
+def execute_dft_single_point_block():
     """
     Workflow to prepare, run, postprocess DFT single-point calculations.
     """
@@ -52,13 +29,12 @@ def execute_dft_single_point_block(initial_state:dict):
 
     graph.add_edge(START, 'dft_sp')
     graph.add_edge('dft_sp', 'assess&select')
+    graph.add_edge('assess&select', END)
 
-    graph.set_entry_point('dft_sp')
-    graph.set_finish_point('assess&select')
     return graph.compile()
 
 
-def execute_mlip_training_block(initial_state:dict):
+def execute_mlip_training_block():
     """
     Workflow to prepare, run, postprocess MLIP training.
     """
@@ -66,15 +42,10 @@ def execute_mlip_training_block(initial_state:dict):
 
     #graph.add_node('prepare_data', prepare_train_test_sets)
     graph.add_node('train_mace', run_mace_fit)
-    graph.add_node('', )
+    #graph.add_node('', )
 
     graph.add_edge(START, 'train_mace')
-    graph.add_edge('train_mace', 'eval_mlip')
-
-    graph.set_entry_point('train_mace')
-    graph.set_finish_point('eval_mlip')
-    workflow = graph.compile()
-
-    validate_workflow(workflow, initial_state)
-
-    return workflow
+    #graph.add_edge('train_mace', 'eval_mlip')
+    graph.add_edge('train_mace', END)
+     
+    return graph.compile()

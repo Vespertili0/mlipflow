@@ -38,23 +38,23 @@ class WorkflowError(Exception):
 
 
 
-def validate_state(state: EnsembleState, required_keys: list[str]) -> None:
-    """Validate state contains required keys with non-empty values"""
-    missing = [key for key in required_keys if not state.get(key)]
-    if missing:
-        raise WorkflowError(f"Missing required state keys: {missing}", state)
-
-
-def validate_workflow(workflow, initial_state: EnsembleState) -> None:
-    """Validate workflow configuration and initial state"""
-    # Validate nodes
-    required_nodes = {'dft_sp', 'train_mace'}
-    missing_nodes = required_nodes - set(workflow.nodes)
-    if missing_nodes:
-        raise ValueError(f"Missing required nodes: {missing_nodes}")
-        
-    # Validate initial state
-    validate_state(initial_state, ['configs', 'qchem_strategy', 'mlip_strategy'])
+#def validate_state(state: EnsembleState, required_keys: list[str]) -> None:
+#    """Validate state contains required keys with non-empty values"""
+#    missing = [key for key in required_keys if not state.get(key)]
+#    if missing:
+#        raise WorkflowError(f"Missing required state keys: {missing}", state)
+#
+#
+#def validate_workflow(workflow, initial_state: EnsembleState) -> None:
+#    """Validate workflow configuration and initial state"""
+#    # Validate nodes
+#    required_nodes = {'dft_sp', 'train_mace'}
+#    missing_nodes = required_nodes - set(workflow.nodes)
+#    if missing_nodes:
+#        raise ValueError(f"Missing required nodes: {missing_nodes}")
+#        
+#    # Validate initial state
+#    validate_state(initial_state, ['configs', 'qchem_strategy', 'mlip_strategy'])
 
 
 def run_dft_sp(state: EnsembleState) -> EnsembleState:
@@ -74,7 +74,7 @@ def run_dft_sp(state: EnsembleState) -> EnsembleState:
         raise ValueError("No configurations provided in state")
         
     configs = state['configs']
-    outfile = [xyz.replace('.xyz', '_dft.xyz') for xyz in configs]
+    outfile = [xyz.replace('.xyz', '.dft.xyz') for xyz in configs]
     
     try:   
         run_single_point(
@@ -134,18 +134,18 @@ def run_dft_sp_block(state: EnsembleState) -> EnsembleState:
  
     return {**state, 'configs': outfile, 'outfile': None}
 
-def clean_dft_data(state: EnsembleState) -> EnsembleState:
-    """Clean DFT data by removing unnecessary info and standardizing keys.
-    
-    Args:
-        state (EnsembleState): Current workflow state
-    Returns:
-        EnsembleState: Updated workflow state
-    Raises:
-        KeyError: If required state keys are missing
-        ValueError: If configs list is empty
-    """
-    check_maxforce_and_cleanarrays
+#def clean_dft_data(state: EnsembleState) -> EnsembleState:
+#    """Clean DFT data by removing unnecessary info and standardizing keys.
+#    
+#    Args:
+#        state (EnsembleState): Current workflow state
+#    Returns:
+#        EnsembleState: Updated workflow state
+#    Raises:
+#        KeyError: If required state keys are missing
+#        ValueError: If configs list is empty
+#    """
+#    check_maxforce_and_cleanarrays
 
 
 def run_mlip_sp(state: EnsembleState) -> EnsembleState:
@@ -184,6 +184,8 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
     except Exception as e:
         logger.error(f"MLIP calculation failed: {str(e)}")
         raise RuntimeError(f"MLIP calculation failed: {str(e)}")
+    finally:
+        clean_up()
  
     return {**state, 'configs': outfile, 'outfile': None}
 
@@ -193,24 +195,40 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
 
 
 def assess_n_select(state: EnsembleState) -> EnsembleState:
+    main_suffix='train'
+    side_suffix='test'    
+    
     configs = state['configs']
     split_configset_by_force_agreement(
         in_file=configs,
-        out_file=configs,
-        pair_tuple=({state["qchem_strategy"].qe_prefix}, {state["mlip_strategy"].mlip_prefix})
+        out_file='dft.xyz',
+        pair_tuple=(state["qchem_strategy"].qe_prefix, state["mlip_strategy"].mlip_prefix),
+        main_suffix=main_suffix,
+        side_suffix=side_suffix
     )
-    return state
+    train_data = [f'{main_suffix}_dft.xyz']
+    test_data = [f'{side_suffix}_dft.xyz']
+
+    return {**state, 'configs': train_data, 'outfile': test_data}
+
+
+#def pool_mlip_training_data(state: EnsembleState) -> EnsembleState:
+#
+#
+#    return {**state}
 
 
 def run_mace_fit(state: EnsembleState) -> EnsembleState:
     configs = state['configs']
+    test_configs = state['outfile']
 
     state['mlip_strategy'].fit_new_model(
         in_file=configs,
+        test_configs=test_configs,
         seed=123, 
         restart=False
     )
-    return state
+    return {**state, 'outfile': None}
 
 
 def run_mlip_structure_generation(state: EnsembleState) -> EnsembleState:
@@ -248,10 +266,11 @@ def run_mlip_structure_generation(state: EnsembleState) -> EnsembleState:
         for tag_type, tags in tag_dict.items():
             for xyz in outfile:
                 update_configset_tag(in_config=xyz, out_file=xyz, tag_dict=tags, tag_type=tag_type)
-
     except Exception as e:
         logger.error(f"Structure generation failed: {str(e)}")
         raise RuntimeError(f"Structure generation failed: {str(e)}")
+    finally:
+        clean_up()
     
     return {**state, 'configs': outfile, 'outfile': None}
 
