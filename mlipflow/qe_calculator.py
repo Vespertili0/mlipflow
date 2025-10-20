@@ -1,7 +1,7 @@
 import os, json
 from abc import ABC, abstractmethod
 
-from ase import units
+#from ase import units
 from ase.calculators.emt import EMT
 from ase.calculators.espresso import EspressoProfile
 from wfl.calculators.espresso import Espresso
@@ -134,7 +134,7 @@ class QECalculator(QChemStrategy):
             calc      :  str, type of calculation, 'scf' or 'relax'
             level     :  str, level of precision, 'fine' or 'normal'
         """        
-        ecut_Ry = ecut_eV * units.eV / units.Ry
+        #ecut_Ry = ecut_eV * units.eV / units.Ry
         
         if level == 'fine':
             conv_thr = 7.4e-9   #60 * 2e-10

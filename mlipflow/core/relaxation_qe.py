@@ -2,7 +2,7 @@ from mlipflow.qe_calculator import QECalculator
 from mlipflow.core.single_point import run_single_point
 
 def run_qe_relaxation(in_file: str, out_file: str, basic_params: str, pseudo_dir: str,
-                      ecut_eV: int = 450, kpts: tuple = (3,3,1), dipole: bool = True, dftd3: bool = True):
+                      ecut_eV: int = 450, kpts: tuple = (3,3,1), dipole: bool = False, dftd3: bool = True):
     """
     Run relaxation using QE directly.
     """
