@@ -1,3 +1,7 @@
+*.pyc
+*.pyo
+*.pyd
+
 # Docs
 .cache/
 docs/reference/*
