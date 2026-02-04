@@ -41,7 +41,8 @@ class QECalculator(QChemStrategy):
             'C' : 'C.pbe-n-kjpaw_psl.1.0.0.UPF', 
             'H' : 'H.pbe-kjpaw_psl.1.0.0.UPF',
             'N': 'N.pbe-n-kjpaw_psl.1.0.0.UPF', 
-            'Pd': 'Pd.pbe-n-kjpaw_psl.1.0.0.UPF'
+            'Pd': 'Pd.pbe-n-kjpaw_psl.1.0.0.UPF',
+            'K': 'K.pbe-spn-kjpaw_psl.1.0.0.UPF'
         }
         
 
@@ -169,62 +170,62 @@ class QECalculator(QChemStrategy):
     
 
 # VASP DFT-strategy class
-class VASPCalculator(QChemStrategy):
-    def __init__(self) -> None:
-        super().__init__()
-
-    def get_calculator(self, job_name, encut: int = 450, kpts: tuple = (3,3,1), calc_type: str = 'scf'):
-        """
-        """
-        # prepare remote settings
-        assert calc_type in ['scf', 'opt'], f'Unknown calculation type: {calc_type}'
-        remote_settings = {
-            'scf': {
-                'max_time': '01:25:00',
-                'n_cores': 32,
-                'num_inputs_per_queued_job': 3,
-                'job_name': job_name,
-                'sys_name': 'local_qe',
-                'pre_cmds': ['module load vasp6/6.3.0'],
-                'input_files': ['/scratch/pawsey1161/sjeschke/pseudo/potpaw_PBE/C/POTCAR'],
-                'env_vars': [
-                    'ASE_VASP_COMMAND="run vasp_std"',
-                    'VASP_PP_PATH=/scratch/pawsey1161/sjeschke/pseudo'
-                    ]
-            },
-            'opt': {
-                'max_time': '06:25:00',
-                'n_cores': 32,
-                'num_inputs_per_queued_job': 1,
-                'job_name': job_name,
-                'sys_name': 'local_qe'
-            },
-        }        
-        self.remote_info=prepare_remote(**remote_settings[calc_type])
-        
-        # prepare calculator
-        calculator = (Vasp, [], {
-            "calculator_exec": "srun vasp_std",
-            "encut": encut,
-            "kpts": kpts,
-            "ibrion": 2,
-            "xc": "PBE",
-            "nsw": 0,
-            "ediff": 1e-06,   # stopping-criterion for ELM 1e-06 default
-            "ediffg": -0.05,  # stopping-criterion for IOM (all forces smaller 0.05 eV/Å)
-            "ispin": 1,
-            "ismear": 1,
-            "sigma": 0.05,    # smearing in eV
-            "lreal": "Auto",
-            # "potim": 0.5,   # step for ionic-motion (for MD in fs) — commented out
-            "lwave": False,
-            "lcharg": False,
-            "isym": 0,
-            "ivdw": 12,
-            "algo": "Fast",
-            "prec": "Normal",
-            "nelm": 80,
-            "txt": "vasp.out",
-            }
-        )
-        return calculator
+#class VASPCalculator(QChemStrategy):
+#    def __init__(self) -> None:
+#        super().__init__()
+#
+#    def get_calculator(self, job_name, encut: int = 450, kpts: tuple = (3,3,1), calc_type: str = 'scf'):
+#        """
+#        """
+#        # prepare remote settings
+#        assert calc_type in ['scf', 'opt'], f'Unknown calculation type: {calc_type}'
+#        remote_settings = {
+#            'scf': {
+#                'max_time': '01:25:00',
+#                'n_cores': 32,
+#                'num_inputs_per_queued_job': 3,
+#                'job_name': job_name,
+#                'sys_name': 'local_qe',
+#                'pre_cmds': ['module load vasp6/6.3.0'],
+#                'input_files': [],
+#                'env_vars': [
+#                    'ASE_VASP_COMMAND="run vasp_std"',
+#                    'VASP_PP_PATH=./'
+#                    ]
+#            },
+#            'opt': {
+#                'max_time': '06:25:00',
+#                'n_cores': 32,
+#                'num_inputs_per_queued_job': 1,
+#                'job_name': job_name,
+#                'sys_name': 'local_qe'
+#            },
+#        }        
+#        self.remote_info=prepare_remote(**remote_settings[calc_type])
+#        
+#        # prepare calculator
+#        calculator = (Vasp, [], {
+#            "calculator_exec": "srun vasp_std",
+#            "encut": encut,
+#            "kpts": kpts,
+#            "ibrion": 2,
+#            "xc": "PBE",
+#            "nsw": 0,
+#            "ediff": 1e-06,   # stopping-criterion for ELM 1e-06 default
+#            "ediffg": -0.05,  # stopping-criterion for IOM (all forces smaller 0.05 eV/Å)
+#            "ispin": 1,
+#            "ismear": 1,
+#            "sigma": 0.05,    # smearing in eV
+#            "lreal": "Auto",
+#            # "potim": 0.5,   # step for ionic-motion (for MD in fs) — commented out
+#            "lwave": False,
+#            "lcharg": False,
+#            "isym": 0,
+#            "ivdw": 12,
+#            "algo": "Fast",
+#            "prec": "Normal",
+#            "nelm": 80,
+#            "txt": "vasp.out",
+#            }
+#        )
+#        return calculator
