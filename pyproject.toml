@@ -28,6 +28,8 @@ dependencies = [
     "wfl @ git+https://github.com/libAtoms/workflow",
     "mace-torch",
     "quippy-ase",
+    "torch-dftd",
+    "langgraph",
 ]
 
 [project.optional-dependencies]
