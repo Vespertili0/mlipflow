@@ -98,7 +98,7 @@ def _run_autopara_wrappable(atoms, calculator, fmax=1.0e-3, smax=None, steps=100
             if 'buildcell_config_i' in at.info:
                 print(at.info['buildcell_config_i'], end=' ')
             print('initial symmetry group number {}, international (Hermann-Mauguin) {} Hall {} prec {}'.format(
-                dataset['number'], dataset['international'], dataset['hall'], 0.01))
+                dataset.number, dataset.international, dataset.hall, 0.01))
 
         at.calc = calculator
         if pressure is not None:
@@ -172,7 +172,7 @@ def _run_autopara_wrappable(atoms, calculator, fmax=1.0e-3, smax=None, steps=100
                 print('final symmetry group number None')
             else:
                 print('final symmetry group number {}, international (Hermann-Mauguin) {} Hall {} prec {}'.format(
-                    dataset['number'], dataset['international'], dataset['hall'], 0.01))
+                    dataset.number, dataset.international, dataset.hall, 0.01))
 
 
         for at in traj:
