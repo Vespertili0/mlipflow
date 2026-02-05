@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mlipflow"
-description="A Python package description goes here."
-version = "0.0.1"
+description = "Code for generating Machine Learning Interatomic Potentials (MLIPs) using wfl, supporting GAP and MACE models. It facilitates active learning workflows with automated structure generation and VASP/QE calculations."
+version = "0.3.0"
 readme = "README.md"
-license = { text = "BSD-3" }
-authors = [{ name = "YourName", email = "YourName@email.com" }]
-keywords = ["MyKeyword1", "MyKeyword2"]
+license = { text = "MIT" }
+authors = [{ name = "Vespertili0" }]
+keywords = ["MLIP", "MACE", "GAP", "Active Learning", "Catalysis"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
@@ -18,7 +18,6 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: Unix",
@@ -42,10 +41,8 @@ docs = [
     "cairosvg>=2.7.1"
 ]
 
-[project.urls]
-#repository = "https://github.com/Vespertili0/mlipflow/"
-#documentation = ""
-#changelog = "https://github.com/Vespertili0/mlipflow//blob/main/CHANGELOG.md"
+[tool.setuptools]
+packages = ["mlipflow"]
 
 [tool.setuptools.package-data]
 mlipflow = ["py.typed"]
@@ -59,7 +56,6 @@ minversion = "6.0"
 addopts = ["-p no:warnings", "--import-mode=importlib"]
 xfail_strict = true
 log_cli_level = "warn"
-pythonpath = "src"
 testpaths = ["tests"]
 
 [tool.black]
@@ -76,7 +72,7 @@ profile = 'black'
 skip_gitignore = true
 
 [tool.coverage.run]
-source = ["src"]
+source = ["mlipflow"]
 
 [tool.coverage.report]
 exclude_also = [
@@ -132,7 +128,7 @@ lint.ignore = [
   "PERF203",  # try-except-in-loop
   "RET505", # Unnecessary `elif` after `return`
 ]
-src = ["src"]
+src = ["mlipflow"]
 lint.unfixable = [
   "T20",  # Removes print statements
   "F841", # Removes unused variables
@@ -161,3 +157,4 @@ namespace_packages = true
 explicit_package_bases = true
 no_implicit_optional = false
 disable_error_code = "annotation-unchecked"
+

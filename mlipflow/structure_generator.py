@@ -4,7 +4,7 @@ import numpy as np
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.autoparallelize import AutoparaInfo
 
-from wfl.generate.md import md as sample_md
+from wfl.generate.md import md as run_md
 #from wfl.generate.optimize import optimize as optimize
 from mlipflow.core.relaxation_fire import optimize
 from mlipflow.wfl_potentials import ForceCheck, select_config
@@ -52,7 +52,7 @@ class MDGen(StructureGenStrategy):
                                  n_failed_steps=self.n_failed_steps)
         
         if remote_info is None:
-            sample_md(
+            run_md(
                 inputs=in_config, 
                 outputs=out_config, 
                 calculator=calculator, 
@@ -63,7 +63,7 @@ class MDGen(StructureGenStrategy):
             )
         
         elif remote_info:
-            sample_md(
+            run_md(
                 inputs=in_config, 
                 outputs=out_config, 
                 calculator=calculator,  
