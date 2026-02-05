@@ -13,25 +13,69 @@ from mlipflow.utils import prepare_remote, time_str_to_seconds
 
 # Base Strategy class for QChem method
 class QChemStrategy(ABC):
+    """
+    Abstract base class for Quantum Chemistry strategies.
+    
+    Attributes:
+        qe_prefix (str): Prefix for QE calculations.
+    """
     def __init__(self) -> None:
+        """Initialize the QChemStrategy."""
         self.qe_prefix = 'DFT_'
 
     @abstractmethod
-    def get_calculator(self):
+    def get_calculator(self, job_name: str) -> tuple:
+        """
+        Get the calculator object.
+
+        Args:
+            job_name (str): Name of the job.
+
+        Returns:
+            tuple: (calculator_class, args, kwargs)
+        """
         pass
 
 # EMT strategy class for debugging
 class EMTCalc(QChemStrategy):
+    """
+    EMT strategy class for debugging and testing.
+    """
     def __init__(self) -> None:
+        """Initialize the EMTCalc strategy."""
         super().__init__()
         self.remote_info = None
 
-    def get_calculator(self, job_name):
+    def get_calculator(self, job_name: str) -> tuple:
+        """
+        Get the EMT calculator.
+
+        Args:
+            job_name (str): Name of the job (unused).
+
+        Returns:
+            tuple: (EMT class, None, dict with options)
+        """
         return (EMT, None, {"fixed_cutoff": True})
 
 # Quantum Espresso DFT-strategy class
 class QECalculator(QChemStrategy):
+    """
+    Quantum Espresso DFT-strategy class.
+    
+    Attributes:
+        basic_params (str): Path to basic parameters JSON file.
+        pseudo_dir (str): Directory containing pseudopotentials.
+        pseudopotentials (dict): Map of element to pseudopotential file.
+    """
     def __init__(self, basic_params: str, pseudo_dir: str) -> None:
+        """
+        Initialize the QECalculator.
+
+        Args:
+            basic_params (str): Path to basic parameters JSON file.
+            pseudo_dir (str): Directory containing pseudopotentials.
+        """
         super().__init__()
         self.basic_params = basic_params
         self.pseudo_dir = pseudo_dir
@@ -46,10 +90,24 @@ class QECalculator(QChemStrategy):
         }
         
 
-    def get_calculator(self, job_name, ecut_eV: int = 450, kpts: tuple = (3,3,1),
+    def get_calculator(self, job_name: str, ecut_eV: int = 450, kpts: tuple = (3,3,1),
                        calc_type: str = 'scf', dipole: bool = False, dftd3: bool = False, spin: bool = False,
                        num_inputs_per_queued_job: int = 2) -> tuple:
         """
+        Get the Quantum Espresso calculator configuration.
+
+        Args:
+            job_name (str): Name of the job.
+            ecut_eV (int): Energy cutoff in eV. Defaults to 450.
+            kpts (tuple): K-points tuple. Defaults to (3,3,1).
+            calc_type (str): Type of calculation ('scf' or 'relax'). Defaults to 'scf'.
+            dipole (bool): Whether to include dipole correction. Defaults to False.
+            dftd3 (bool): Whether to include DFT-D3 correction. Defaults to False.
+            spin (bool): Whether to include spin polarization. Defaults to False.
+            num_inputs_per_queued_job (int): Number of inputs per queued job. Defaults to 2.
+
+        Returns:
+            tuple: (Espresso class, [], dict with options)
         """
         # prepare remote settings based on calculation type
         assert calc_type in ['scf', 'relax'], f'Unknown calculation type: {calc_type}'
@@ -126,14 +184,17 @@ class QECalculator(QChemStrategy):
         return calculator
 
 
-    def _prepare_params(self, ecut_eV: int, calc: str, level='fine') -> dict:
+    def _prepare_params(self, ecut_eV: int, calc: str, level: str = 'fine') -> dict:
         """
-        modifying input-file for Quantum Espresso (QE) pw.x computation
+        Prepare input-file parameters for Quantum Espresso (QE) pw.x computation.
 
         Args:
-            ecut      :  int in eV
-            calc      :  str, type of calculation, 'scf' or 'relax'
-            level     :  str, level of precision, 'fine' or 'normal'
+            ecut_eV (int): Energy cutoff in eV.
+            calc (str): Type of calculation, 'scf' or 'relax'.
+            level (str): Level of precision, 'fine' or 'normal'. Defaults to 'fine'.
+
+        Returns:
+            dict: Dictionary of QE parameters.
         """        
         #ecut_Ry = ecut_eV * units.eV / units.Ry
         

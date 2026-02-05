@@ -19,19 +19,47 @@ from mlipflow.wfl_potentials import GAPCalc
 class MLIPStrategy(ABC):
     """
     Base class for MLIP strategy classes. It defines the interface for MLIPs implemented in the MLIPFlow package.
+    
+    Attributes:
+        mlip_name (str): Name of the MLIP.
+        run_mode (str): Run mode ('local' or 'remote').
     """
-    def __init__(self, mlip_name, run_mode) -> None:
+    def __init__(self, mlip_name: str, run_mode: str) -> None:
+        """
+        Initialize the MLIPStrategy.
+
+        Args:
+            mlip_name (str): Name of the MLIP.
+            run_mode (str): Run mode. Must be 'local' or 'remote'.
+        """
         assert run_mode in ['local', 'remote'], 'run_mode is "local" or "remote"'
         self.run_mode = run_mode
         self.mlip_name = mlip_name
 
 
     @abstractmethod
-    def get_calculator(self, job_name):
+    def get_calculator(self, job_name: str) -> tuple:
+        """
+        Get the calculator object.
+
+        Args:
+            job_name (str): Name of the job.
+
+        Returns:
+            tuple: Calculator configuration.
+        """
         pass  
     
     @abstractmethod
-    def fit_new_model(self, in_file, model_name, run_dir):
+    def fit_new_model(self, in_file: str, model_name: str, run_dir: str) -> None:
+        """
+        Fit a new model.
+
+        Args:
+            in_file (str): Input file path.
+            model_name (str): Name of the model.
+            run_dir (str): Run directory.
+        """
         pass
 
 
@@ -39,30 +67,47 @@ class MLIPStrategy(ABC):
 class MACEModel(MLIPStrategy):
     """
     MACE strategy class for MLIPFlow. It defines the interface for MACE implemented in the MLIPFlow package.
-    Parameters:
-    ----------
-    mlip_file: (str) file name of the MACE model.
-    run_mode: (str) 'local' or 'remote'. If 'local', the MACE model is run locally in current job. 
-                    If 'remote', the MACE model is submitted to run via wfl-RemoteInfo object.
+    
+    Attributes:
+        mlip_file (str): File name of the MACE model.
+        run_mode (str): 'local' or 'remote'. If 'local', the MACE model is run locally in current job. 
+                        If 'remote', the MACE model is submitted to run via wfl-RemoteInfo object.
     
     """
-    def __init__(self, mlip_name, mace_config, run_mode='remote') -> None:
+    def __init__(self, mlip_name: str, mace_config: str | None = None, run_mode: str = 'remote') -> None:
+        """
+        Initialize the MACEModel.
+
+        Args:
+            mlip_name (str): Name of the MLIP.
+            mace_config (str | None): Path to MACE configuration file. Defaults to None.
+            run_mode (str): Run mode ('local' or 'remote'). Defaults to 'remote'.
+        """
         super().__init__(run_mode=run_mode, mlip_name=mlip_name)
         self.mlip_prefix = 'MACE_'
         self.mace_config = mace_config
         self.model_file = f"{mlip_name}.model"
 
-    def get_calculator(self, job_name, dispersion=True, dtype='float32'):
+    def get_calculator(self, job_name: str, dispersion: bool = True, max_time: str = '00:10:00', dtype: str = 'float32') -> tuple:
         """
         It returns the MACE-calculator as tuple with the ase-calculator class, arguments and keyword arguments.
         Creates the remote_info object if run_mode is 'remote'.
+
+        Args:
+            job_name (str): Name of the job.
+            dispersion (bool): Whether to include dispersion. Defaults to True.
+            max_time (str): Maximum time for remote job. Defaults to '00:10:00'.
+            dtype (str): Data type. Defaults to 'float32'.
+
+        Returns:
+            tuple: Calculator configuration.
         """
         if self.run_mode == 'local':
             self.remote_info = None
 
         elif self.run_mode == "remote":
             self.remote_info = prepare_remote(
-                max_time='00:10:00', 
+                max_time=max_time, 
                 n_cores=1,
                 num_inputs_per_queued_job=6,
                 job_name=job_name,
@@ -99,18 +144,22 @@ class MACEModel(MLIPStrategy):
         return calculator 
     
 
-    def fit_new_model(self, in_file, test_configs, ref_property_prefix='DFT_',
-                      seed=123, restart=False, n_cores=128, max_time='10:00:00') -> None:
+    def fit_new_model(self, in_file: str, test_configs: str, ref_property_prefix: str = 'DFT_',
+                      seed: int = 123, restart: bool = False, n_cores: int = 128, max_time: str = '10:00:00') -> None:
         """
         Run the wfl.fit.mace.fit function.
-        Parameters
-        ----------
-        in_file:                str
-            Path to file containing the input configs for the MACE fit
 
-        Returns
-        -------
-        None, the selected files are written in the defined directory.
+        Args:
+            in_file (str): Path to file containing the input configs for the MACE fit.
+            test_configs (str): Path to file containing the test configs.
+            ref_property_prefix (str): Prefix for reference properties. Defaults to 'DFT_'.
+            seed (int): Random seed. Defaults to 123.
+            restart (bool): Whether to restart from latest. Defaults to False.
+            n_cores (int): Number of cores. Defaults to 128.
+            max_time (str): Maximum time for job. Defaults to '10:00:00'.
+
+        Returns:
+            None: The selected files are written in the defined directory.
         """
         # load MACE fitting parameters from JSON file
         with open(self.mace_config) as param_json:
@@ -144,14 +193,21 @@ class MACEModel(MLIPStrategy):
 class GAPModel(MLIPStrategy):
     """
     GAP strategy class for MLIPFlow. It defines the interface for GAP implemented in the MLIPFlow package.
-    Parameters:
-    ----------
-    mlip_file: (str) file name of the GAP model.
-    run_mode: (str) 'local' or 'remote'. If 'local', the GAP model is run locally in current job. 
-                    If 'remote', the GAP model is submitted to run via wfl-RemoteInfo object.
+    
+    Attributes:
+        mlip_file (str): file name of the GAP model.
+        run_mode (str): 'local' or 'remote'. If 'local', the GAP model is run locally in current job. 
+                        If 'remote', the GAP model is submitted to run via wfl-RemoteInfo object.
     
     """
-    def __init__(self, mlip_file, run_mode='remote') -> None:
+    def __init__(self, mlip_file: str, run_mode: str = 'remote') -> None:
+        """
+        Initialize the GAPModel.
+
+        Args:
+            mlip_file (str): File name of the GAP model.
+            run_mode (str): Run mode ('local' or 'remote'). Defaults to 'remote'.
+        """
         super().__init__(run_mode=run_mode, mlip_file=mlip_file)
         self.mlip_prefix = 'GAP'
 
@@ -181,7 +237,16 @@ class GAPModel(MLIPStrategy):
                 }
             }
 
-    def get_calculator(self, job_name):
+    def get_calculator(self, job_name: str) -> tuple:
+        """
+        Get the calculator object.
+
+        Args:
+            job_name (str): Name of the job.
+
+        Returns:
+            tuple: Calculator configuration.
+        """
         if self.run_mode == 'local':
             calculator = (Potential, [], {
                 'param_filename': self.mlip_file,
@@ -209,21 +274,17 @@ class GAPModel(MLIPStrategy):
         return calculator
 
 
-    def fit_new_model(self, in_file, model_name, run_dir)->None:
+    def fit_new_model(self, in_file: str, model_name: str, run_dir: str) -> None:
         """
         Run the wfl.fit.gap_multistage fit function.
 
-        Parameters
-        ----------
-        in_file:                str
-            Path to file containing the input configs for the GAP fit
-        gap_name:               str
-            File name of written GAP
-        run_dir:                str, default='GAP'
-            Name of the directory in which the GAP files will be written
-        Returns
-        -------
-        None, the selected configs are written in the out_file
+        Args:
+            in_file (str): Path to file containing the input configs for the GAP fit.
+            model_name (str): File name of written GAP.
+            run_dir (str): Name of the directory in which the GAP files will be written.
+
+        Returns:
+            None: The selected configs are written in the out_file.
         """
         in_config = ConfigSet(in_file)
 
@@ -239,9 +300,15 @@ class GAPModel(MLIPStrategy):
         return None    
 
 
-    def _get_multistage_params(self, stage_list:list=['2B','SOAP'])->dict:
+    def _get_multistage_params(self, stage_list: list[str] = ['2B','SOAP']) -> dict:
         """
-        
+        Get the multistage GAP parameters.
+
+        Args:
+            stage_list (list[str]): List of stages to include. Defaults to ['2B', 'SOAP'].
+
+        Returns:
+            dict: Multistage parameters dictionary.
         """
         # default settings for Two-Body
         atom_list = list(itertools.combinations_with_replacement(self.Zs, 2))
