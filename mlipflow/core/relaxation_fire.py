@@ -93,7 +93,8 @@ def _run_autopara_wrappable(
         final_status = 'unconverged'
 
         try:
-            opt.run(fmax=fmax, steps=steps) #smax=smax, 
+            if opt.run(fmax=fmax, steps=steps): #smax=smax,
+                final_status = 'converged'
         except Exception as exc:
             # label actual failed optimizations
             # when this happens, the atomic config somehow ends up with a 6-vector stress, which can't be
@@ -113,9 +114,6 @@ def _run_autopara_wrappable(
 
         # set for first config, to be overwritten if it's also last config
         traj[0].info['optimize_config_type'] = 'optimize_initial'
-
-        if opt.converged():
-            final_status = 'converged'
 
         traj[-1].info['optimize_config_type'] = f'optimize_last_{final_status}'
         traj[-1].info['optimize_n_steps'] = opt.get_number_of_steps()
