@@ -50,16 +50,9 @@ def _rename_configset_tags(at, old_tag, new_tag, tag_type='info') -> Atoms:
 def update_configset_tag(in_config, out_file, tag_dict, tag_type) -> None:
     """Update tags in a wfl.configset ConfigSet object using wfl.map-function."""
     configs = ConfigSet(in_config)
-    OutputSpec(out_file, overwrite=True).write(configs) # Initial write if meant to just copy? No, loop below does map.
-    # Wait, the original code had:
-    # configs = ConfigSet(in_config)
-    # output = OutputSpec(out_file, overwrite=True)
-    # for old_tag, new_tag in tag_dict.items():
-    #     wfl_map(...) 
-    # This logic seems to write purely via wfl_map.
-    
-    # Correct implementation from original:
+    OutputSpec(out_file, overwrite=True).write(configs)
     output = OutputSpec(out_file, overwrite=True)
+    
     for old_tag, new_tag in tag_dict.items():
         wfl_map(
             inputs=configs, 
