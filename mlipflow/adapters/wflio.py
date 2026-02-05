@@ -161,3 +161,6 @@ def select_config(traj: list[object]) -> list[object]:
     
     else:
         return traj[-10:-9]
+    
+def select_all(traj: list[object]) -> list[object]:
+    return traj[:]

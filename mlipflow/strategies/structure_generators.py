@@ -7,7 +7,7 @@ from wfl.autoparallelize import AutoparaInfo
 from wfl.generate.md import md as run_md
 #from wfl.generate.optimize import optimize as optimize
 from mlipflow.core.relaxation_fire import optimize
-from mlipflow.adapters.wflio import ForceCheck, select_config
+from mlipflow.adapters.wflio import ForceCheck
 #####################################################################
 
 # Base Strategy class for structure generator approach
@@ -31,7 +31,8 @@ class MDGen(StructureGenStrategy):
         self.md_params = md_params
         self.calc_prefix = 'md'
     
-    def generate_new_structures(self, in_file, out_file, calculator, remote_info=None) -> None:
+    def generate_new_structures(self, in_file, out_file, calculator,
+                                traj_select_after_func=None, remote_info=None) -> None:
         """
         Generates new configs via the wfl.generate_configs.md sample function.
 
@@ -57,7 +58,7 @@ class MDGen(StructureGenStrategy):
                 outputs=out_config, 
                 calculator=calculator, 
                 rng=rng, 
-                traj_select_after_func=select_config, 
+                traj_select_after_func=traj_select_after_func, 
                 abort_check=abort_check, 
                 **self.md_params
             )
@@ -68,7 +69,7 @@ class MDGen(StructureGenStrategy):
                 outputs=out_config, 
                 calculator=calculator,  
                 rng=rng, 
-                traj_select_after_func=select_config, 
+                traj_select_after_func=traj_select_after_func, 
                 abort_check=abort_check,
                 autopara_info=AutoparaInfo(
                     remote_info=remote_info,
