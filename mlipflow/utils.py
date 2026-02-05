@@ -2,7 +2,6 @@ import os
 from datetime import datetime
 from wfl.autoparallelize import RemoteInfo
 from expyre.resources import Resources
-
 import expyre
 expyre.config.init(root_dir=os.getcwd())
 
@@ -42,7 +41,6 @@ def prepare_remote(max_time: int | str, n_cores: int, num_inputs_per_queued_job:
     Returns:
         wfl.autoparallelize.RemoteInfo: The configured RemoteInfo object.
     """
-    
     remote_info = RemoteInfo(
         resources=Resources(
             max_time=max_time,

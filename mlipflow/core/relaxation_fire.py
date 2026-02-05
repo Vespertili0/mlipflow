@@ -1,11 +1,9 @@
 import sys
-
 import ase.units
 import numpy as np
 import spglib
 from ase.filters import FrechetCellFilter
 from ase.optimize import FIRE
-
 from wfl.autoparallelize import autoparallelize, autoparallelize_docstring
 from wfl.utils.save_calc_results import at_copy_save_calc_results
 from wfl.utils.misc import atoms_to_list
