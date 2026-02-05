@@ -88,7 +88,8 @@ class MACEModel(MLIPStrategy):
         self.mace_config = mace_config
         self.model_file = f"{mlip_name}.model"
 
-    def get_calculator(self, job_name: str, dispersion: bool = True, max_time: str = '00:10:00', dtype: str = 'float32') -> tuple:
+    def get_calculator(self, job_name: str, dispersion: bool = True, dtype: str = 'float32',
+                       max_time: str = '00:10:00', num_inputs_per_queued_job: int = 6) -> tuple:
         """
         It returns the MACE-calculator as tuple with the ase-calculator class, arguments and keyword arguments.
         Creates the remote_info object if run_mode is 'remote'.
@@ -109,7 +110,7 @@ class MACEModel(MLIPStrategy):
             self.remote_info = prepare_remote(
                 max_time=max_time, 
                 n_cores=1,
-                num_inputs_per_queued_job=6,
+                num_inputs_per_queued_job=num_inputs_per_queued_job,
                 job_name=job_name,
 #                pre_cmds=['export WFL_NUM_PYTHON_SUBPROCESSES=5']
 #                sys_name='local_mace'
