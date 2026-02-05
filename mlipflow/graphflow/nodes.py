@@ -4,12 +4,14 @@ from dataclasses import dataclass
 from typing_extensions import NotRequired
 
 #from wfl.utils import logging
-from mlipflow.data import *
+from mlipflow.data.io import clean_up
+from mlipflow.data.processing import update_configset_tag
+from mlipflow.data.selection import split_configset_by_force_agreement
 from mlipflow.core.single_point import run_single_point, run_chunked_qe_sp
 from mlipflow.core.calculate_error import calculate_mlip_error
-from mlipflow.structure_generator import StructureGenStrategy
-from mlipflow.mlip_strategy import MLIPStrategy
-from mlipflow.qe_calculator import QChemStrategy
+from mlipflow.strategies.structure_generators import StructureGenStrategy
+from mlipflow.strategies.mlip import MLIPStrategy
+from mlipflow.strategies.dft import QChemStrategy
 
 logger = logging.getLogger(__name__)
 #####################################################

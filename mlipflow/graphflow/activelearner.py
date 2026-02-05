@@ -1,7 +1,7 @@
 import copy, glob, os
 from typing import TypedDict
 from langgraph.graph import StateGraph, START, END
-from .taskflows import *
+from .graphs import *
 
 class ActiveLearningFlow(TypedDict):
     reaction_data: list[str]
