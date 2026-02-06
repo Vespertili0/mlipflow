@@ -4,7 +4,8 @@ import numpy as np
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.autoparallelize import AutoparaInfo
 
-from wfl.generate.md import md as run_md
+#from wfl.generate.md import md as run_md
+from mlipflow.core.md_nvt import md as run_md
 #from wfl.generate.optimize import optimize as optimize
 from mlipflow.core.relaxation_fire import optimize
 from mlipflow.adapters.wflio import ForceCheck
@@ -73,7 +74,8 @@ class MDGen(StructureGenStrategy):
                 abort_check=abort_check,
                 autopara_info=AutoparaInfo(
                     remote_info=remote_info,
-                    num_inputs_per_python_subprocess=1
+                    num_inputs_per_python_subprocess=1,
+                    num_python_subprocesses=1
                 ),
                 **self.md_params
             )
@@ -126,7 +128,8 @@ class OPTGen(StructureGenStrategy):
                 traj_subselect=self.traj_subselect,
                 autopara_info=AutoparaInfo(
                     remote_info=remote_info,
-                    num_inputs_per_python_subprocess=2
+                    num_inputs_per_python_subprocess=2,
+                    num_python_subprocesses=1
                 ),
                 **self.opt_params
             )

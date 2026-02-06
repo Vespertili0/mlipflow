@@ -144,6 +144,8 @@ class NEBPairFinder:
             
         if count < n_pathways:
             print(f"Warning: Only generated {count} pathways out of requested {n_pathways}.")
+
+        return generated_pathways
             
     def _get_pools_from_transition(self, transition_string):
         """Extracts and validates reactant and product pools from a transition string.
