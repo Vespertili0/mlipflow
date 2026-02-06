@@ -46,12 +46,13 @@ class EMTCalc(QChemStrategy):
         super().__init__()
         self.remote_info = None
 
-    def get_calculator(self, job_name: str) -> tuple:
+    def get_calculator(self, job_name: str, **kwargs) -> tuple:
         """
         Get the EMT calculator.
 
         Args:
             job_name (str): Name of the job (unused).
+            **kwargs: Additional arguments to match QECalculator signature.
 
         Returns:
             tuple: (EMT class, None, dict with options)
