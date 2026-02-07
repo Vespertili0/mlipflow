@@ -4,6 +4,8 @@ from ase.io import read
 from ase.mep import NEB
 from ase import Atoms
 from quippy.descriptors import Descriptor
+from wfl.configset import ConfigSet, OutputSpec
+from wfl.map import map as wfl_map
 
 
 class NEBPairFinder:
@@ -200,3 +202,81 @@ def create_similarity_matrix(mols1, descriptor_string, atom_slice=slice(None), m
     X2_norm = X2 / norms2
     
     return np.dot(X1_norm, X2_norm.T)
+
+
+
+def create_neb_pairs(
+    xyz_file: str,
+    rxn_constraints_dict: dict,
+    method: str = 'similarity',
+    n_pathways: int = 10,
+    n_images: int = 9,
+    descriptor_string: str = None,
+    atom_slice: slice = slice(None)
+) -> list:
+    """
+    Generates NEB pathways for a set of reactions using either similarity or random pairing.
+
+    Args:
+        xyz_file (str): Path to the XYZ file containing reactant and product pools.
+        rxn_constraints_dict (dict): Dictionary mapping reaction strings (e.g. 'slab+ads -> slab_ads')
+                                     to constraint lists (e.g. [FixAtoms(indices=[...])]).
+        method (str, optional): Pairing method, either 'similarity' or 'random'. Defaults to 'similarity'.
+        n_pathways (int, optional): Number of pathways to generate per reaction. Defaults to 10.
+        n_images (int, optional): Number of intermediate images for NEB. Defaults to 9.
+        descriptor_string (str, optional): SOAP descriptor string, required if method is 'similarity'. Defaults to None.
+        atom_slice (slice, optional): Slice of atoms to use for descriptor calculation. Defaults to slice(None).
+
+    Returns:
+        list: A list where each element is the wfl_map output (list of ConfigSet) for that reaction,
+              containing the generated pathways with constraints applied.
+    
+    Raises:
+        ValueError: If method is not 'similarity' or 'random'.
+        ValueError: If method is 'similarity' but descriptor_string is missing.
+    """
+
+    if method not in ['similarity', 'random']:
+        raise ValueError(f"Invalid method '{method}'. tailored options: 'similarity', 'random'")
+    
+    if method == 'similarity' and descriptor_string is None:
+        raise ValueError("descriptor_string must be provided for similarity method")
+
+    npf = NEBPairFinder(xyz_file)
+
+    # list-of-lists: one list of paths per reaction
+    all_paths = []
+    for rxn_string in rxn_constraints_dict.keys():
+        if method == 'similarity':
+            paths = npf.generate_similarity_pathways(
+                transition_string=rxn_string,
+                n_pathways=n_pathways,
+                descriptor_string=descriptor_string,
+                atom_slice=atom_slice,
+                n_images=n_images
+            )
+        elif method == 'random':
+             paths = npf.generate_random(
+                transition_string=rxn_string,
+                n_pairings=n_pathways,
+                n_images=n_images
+            )
+        all_paths.append(paths)
+
+    def apply_constraints(at, constraint_list):
+        at.constraints = constraint_list
+        return at
+
+    # Apply wfl_map to each list of paths, using matching constraint list
+    mapped_results = []
+    for (rxn_string, constraint_list), paths in zip(rxn_constraints_dict.items(), all_paths):
+        mapped_results.append(
+            wfl_map(
+                inputs=ConfigSet(paths),
+                outputs=OutputSpec(),
+                map_func=apply_constraints,
+                args=[constraint_list]
+            )
+        )
+
+    return mapped_results
