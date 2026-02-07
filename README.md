@@ -1,27 +1,35 @@
 # mlipflow
-> A succinct tagline explaining what it does.
+**A Python Package for Reaction Pathway Exploration using Machine-Learned Interatomic Potentials (MLIPs)**
 
-## Table of Contents
-- [Overview](#overview)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Features](#features)
-- [Code Structure & Roadmap](#roadmap)
-- [Contributing](#contributing)
-- [Testing](#testing)
-- [License](#license)
-- [Contact](#contact)
+mlipflow bridges the critical gap between high-level machine learning development and practical catalysis research. It provides a modular, scalable framework to automate the exploration of complex reaction pathways with near-quantum accuracy at a fraction of the traditional computational cost.
 
-## Overview
-What and Why: Immediately explain the motivation behind the package. What problem does it solve? Why did you build it?
-Audience: Briefly mention who the package is for—whether it’s meant for data scientists, web developers, or another niche.
-Value Proposition: Emphasize what makes your implementation unique. This not only highlights your technical skill but also your design choices.
+>### 🚩 The Challenge: The "Catalysis Bottleneck"
+>
+>Traditional heterogeneous catalysis research faces three major hurdles that mlipflow is built to solve:
+>
+>The Cost-Accuracy Trade-off: Density Functional Theory (DFT) is the gold standard for accuracy but is too slow for exhaustive pathway exploration.
+>
+>Human Selection Bias: Researchers often manually "guess" reaction pathways, potentially missing the actual rate-determining steps or low-energy configurations.
+>
+>Architecture Lock-in: Most existing MLIP packages are tied to specific, often outdated, ML architectures. Transitioning to state-of-the-art models like MACE typically requires a complete rewrite of the simulation workflow.
 
-Key Features:
-- Workflow Automation: Automates the process of generating structures, training ML models, and performing quantum chemistry calculations.
-- Object-Oriented Design: Implements a modular structure with classes for managing data, generating structures, and interacting with ML and quantum chemistry tools.
-- Extensibility: Supports multiple strategies for structure generation (e.g., MD, optimization, NEB) and MLIP training (e.g., GAP, MACE).
-- Integration with Calculators: Interfaces with quantum chemistry and DFT calculators like EMT and QE.
+## ✨ Key Features
+
+Modularity: Built on ASE and LangGraph, allowing for modular extension of functions and custom calculators.
+
+Scalability: Integrated with WFL to support seamless execution on HPC platforms, scaling from small tests to massive datasets.
+
+Extensibility: Supports multiple strategies for structure generation (e.g., MD, optimization, NEB) and MLIP training (e.g., GAP, MACE)..
+
+## 🔄 The Iterative Workflow
+
+mlipflow employs an active learning loop to refine the Potential Energy Surface (PES):
+
+Generate: Create new configurations (e.g., via MLIP-NEB) to explore unknown regions.
+
+Compute: Automatically trigger high-level DFT (Quantum Espresso) for "ground truth" data.
+
+Train: Update the MLIP model, refining its accuracy for the next iteration of exploration.
 
 ## Installation
 ```bash
