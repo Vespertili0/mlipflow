@@ -18,7 +18,9 @@ Audience: Briefly mention who the package is for—whether it’s meant for data
 Value Proposition: Emphasize what makes your implementation unique. This not only highlights your technical skill but also your design choices.
 
 ## Installation
-Step-by-step instructions using code blocks.
+```bash
+$ git install https://github.com/Vespertili0/mlipflow.git
+```
 
 ## Usage
 Code examples demonstrating primary functions and expected outcomes, including graphical outputs if applicable.
