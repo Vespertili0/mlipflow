@@ -17,6 +17,12 @@ What and Why: Immediately explain the motivation behind the package. What proble
 Audience: Briefly mention who the package is for—whether it’s meant for data scientists, web developers, or another niche.
 Value Proposition: Emphasize what makes your implementation unique. This not only highlights your technical skill but also your design choices.
 
+Key Features:
+- Workflow Automation: Automates the process of generating structures, training ML models, and performing quantum chemistry calculations.
+- Object-Oriented Design: Implements a modular structure with classes for managing data, generating structures, and interacting with ML and quantum chemistry tools.
+- Extensibility: Supports multiple strategies for structure generation (e.g., MD, optimization, NEB) and MLIP training (e.g., GAP, MACE).
+- Integration with Calculators: Interfaces with quantum chemistry and DFT calculators like EMT and QE.
+
 ## Installation
 ```bash
 $ git install https://github.com/Vespertili0/mlipflow.git
