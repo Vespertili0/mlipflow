@@ -1,13 +1,24 @@
 import pytest
 import os
+import shutil
+import numpy as np
 from ase.constraints import FixAtoms, FixBondLength
+from ase.io import read
 from mlipflow.core.neb_pairing import create_neb_pairs
+from mlipflow.strategies.structure_generators import OPTGen
+from mlipflow.strategies.dft import EMTCalc
 from wfl.configset import ConfigSet
 
-def test_create_neb_pairs():
-    # Define paths
+@pytest.fixture
+def test_data_setup(tmp_path):
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    xyz_file = os.path.join(current_dir, 'data', 'test_data.xyz')
+    src_xyz = os.path.join(current_dir, 'data', 'test_data.xyz')
+    config_file = tmp_path / "test_data.xyz"
+    shutil.copy2(src_xyz, config_file)
+    return config_file, tmp_path
+
+def test_neb_pairing_and_opt(test_data_setup):
+    xyz_file, tmp_path = test_data_setup
     
     # Define parameters
     descriptor_string = 'soap n_species=4 species_Z={1 6 8 29} l_max=6 n_max=8 cutoff=3.5 atom_sigma=0.5 zeta=6'
@@ -18,70 +29,60 @@ def test_create_neb_pairs():
         'tFURao+H -> FA': [FixAtoms(list(range(32))), FixBondLength(70, 76)]
     }
     n_pathways = 3
+    opt_params = {'fmax': 0.05, 'steps': 5}
     
-    # Run function
-    results = create_neb_pairs(
-        xyz_file=xyz_file,
-        rxn_constraints_dict=rxn_constraints_dict,
-        method='similarity',
-        n_pathways=n_pathways,
-        descriptor_string=descriptor_string
-    )
-    
-    # Verify results
-    assert len(results) == len(rxn_constraints_dict)
-    
-    for i, result in enumerate(results):
-        # result is a list of ConfigSet (or similar, depending on wfl_map output)
-        # wfl_map returns a list of outputs for each input item in the ConfigSet
-        # Here input ConfigSet had n_pathways items.
-        
-        # Verify number of pathways
-        # Note: wfl_map returns a list of things returned by map_func. 
-        # But wait, create_neb_pairs returns `mapped_results`, which is a list.
-        # Each element of `mapped_results` is the return value of `wfl_map`.
-        # `wfl_map` returns a ConfigSet (if OutputSpec was used correctly) or list of results?
-        # Looking at `create_neb_pairs`:
-        # mapped_results.append(wfl_map(..., outputs=OutputSpec(), ...))
-        # wfl.map returns ConfigSet if OutputSpec is valid/provided.
-        
-        # Check type
-        assert isinstance(result, ConfigSet)
-        
-        # Check number of items in ConfigSet
-        # We expect n_pathways lists of Atoms (each path is a list of Atoms)
-        # But wait, `apply_constraints` takes `at` (Atoms) and returns `at`.
-        # The input to `wfl_map` is `ConfigSet(paths)`. `paths` is a list of lists of Atoms.
-        # wfl ConfigSet iterates over "configs".
-        # If `paths` is a list of lists of Atoms, does ConfigSet flatten it? 
-        # Usually ConfigSet iterates over atoms objects. 
-        # `generate_similarity_pathways` returns list of lists of Atoms.
-        # If I pass list-of-lists to ConfigSet, it might be treated as list of configs if the inner list is atoms?
-        # Let's check `neb_pairing.py` logic.
-        # loops over reactions. `paths` = list of pathways. Each pathway = list of Atoms.
-        # ConfigSet(paths) -> iteration yields... ? 
-        # If ConfigSet handles list of lists, it usually flattens? Or treats sublists as "items"?
-        # Actually NEB paths are usually list of Atoms.
-        # If `apply_constraints` expects `at` (Atoms), then `ConfigSet` must be iterating over Atoms.
-        # So `paths` (list of lists of Atoms) -> ConfigSet -> iterates over all Atoms in all pathways concurrently?
-        # If so, `wfl_map` returns a ConfigSet containing all Images of all Pathways.
-        
-        # Let's verify what `apply_constraints` does. It takes `at` and sets constraints.
-        # This acts on individual images.
-        
-        # So `result` should contain (n_pathways * images_per_pathway) Atoms objects?
-        # `generate_similarity_pathways` uses default n_images=5 (internal) + start/end = 7 images total?
-        # `create_neb_pairs` default n_images=7.
-        # Let's check `generate_pathway`:
-        # images = [initial] + [copy]*n_images + [final]. Total = n_images + 2.
-        # `create_neb_pairs` passes `n_images` to `generate_similarity_pathways`.
-        # so length of one path is n_images + 2.
-        
-        # Total expected items = n_pathways * (n_images_default + 2)
-        # In test, we didn't specify n_images, so default=9 (from user edit).
-        # Total = 3 * (9 + 2) = 33 atoms objects per reaction.
-        
-        pass
+    # Initialize strategy and get calculator tuple
+    calculator_strategy = EMTCalc()
+    calculator_tuple = calculator_strategy.get_calculator(job_name="test")
 
-if __name__ == "__main__":
-    test_create_neb_pairs()
+    # Methods to test
+    methods = ['similarity', 'random']
+    
+    for method in methods:
+        print(f"Testing method: {method}")
+        # Run create_neb_pairs
+        results = create_neb_pairs(
+            xyz_file=str(xyz_file),
+            rxn_constraints_dict=rxn_constraints_dict,
+            method=method,
+            n_pathways=n_pathways,
+            descriptor_string=descriptor_string if method == 'similarity' else None
+        )
+        
+        assert len(results) == len(rxn_constraints_dict)
+        
+        # Run OPTGen on resulting structures
+        # Use traj_subselect=None to keep full trajectory even if unconverged
+        opt_gen = OPTGen(opt_params=opt_params, traj_subselect=None)
+        
+        # Iterate over results (ConfigSets)
+        for i, config_set in enumerate(results):
+             # Extract all atoms from all bands and flatten
+             atoms_list = []
+             for band in config_set:
+                 if isinstance(band, list):
+                     atoms_list.extend(band)
+                 else:
+                     atoms_list.append(band)
+
+             # Create a new ConfigSet for OPTGen from flattened list
+             # OPTGen expects inputs to be a list or ConfigSet.
+
+             out_file = tmp_path / f"opt_results_{method}_{i}.xyz"
+
+             opt_gen.generate_new_structures(
+                 in_file=atoms_list,
+                 out_file=str(out_file),
+                 calculator=calculator_tuple # passing the tuple as calculator
+             )
+
+             # Check if output file exists and has content
+             assert out_file.exists()
+             optimized_atoms = read(str(out_file), ':')
+             assert len(optimized_atoms) > 0
+
+             # Check if optimization happened
+             # Use generic check, or specific key if known
+             # Since we use EMTCalc (generic), it might add DFT_energy or similar
+             # OPTGen puts 'optimize_config_type' in info
+             assert 'optimize_config_type' in optimized_atoms[0].info

@@ -264,7 +264,11 @@ def create_neb_pairs(
         all_paths.append(paths)
 
     def apply_constraints(at, constraint_list):
-        at.constraints = constraint_list
+        if isinstance(at, list):
+            for a in at:
+                a.constraints = constraint_list
+        else:
+            at.constraints = constraint_list
         return at
 
     # Apply wfl_map to each list of paths, using matching constraint list
