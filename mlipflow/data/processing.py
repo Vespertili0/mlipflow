@@ -106,3 +106,67 @@ def merge_clean_chunks(in_files: list, out_file: str) -> None:
     OutputSpec(out_file, tags={'data_type': 'train'}).write(ConfigSet(success_configs))
     name, ext = os.path.splitext(out_file)
     OutputSpec(f'{name}_failed{ext}').write(ConfigSet(failed_configs))
+
+
+def _clean_atoms_attributes(at: Atoms, keep_info_keys: list, keep_array_keys: list) -> Atoms:
+    """
+    Helper function to clean atoms.info and atoms.arrays dictionaries.
+    
+    Parameters
+    ----------
+    atoms : ase.Atoms
+        Atoms object to clean.
+    keep_info_keys : list
+        List of keys to keep in atoms.info.
+    keep_array_keys : list
+        List of keys to keep in atoms.arrays.
+        
+    Returns
+    -------
+    ase.Atoms
+        Cleaned Atoms object.
+    """
+    at.info = {k: v for k, v in at.info.items() if k in keep_info_keys}
+    at.arrays = {k: v for k, v in at.arrays.items() if k in keep_array_keys}
+    
+    return at
+
+
+def clean_configset_data(inputs, outputs, keep_info_keys=None, keep_array_keys=None):
+    """
+    Clean the info and array attributes of a configset.
+    
+    Parameters
+    ----------
+    inputs : wfl.configset.ConfigSet or list(Atoms) or list(str)
+        Input configurations.
+    outputs : wfl.configset.OutputSpec or str
+        Output configuration.
+    keep_info_keys : list, optional
+        List of keys to keep in atoms.info. Default is ['slab', 'species'].
+    keep_array_keys : list, optional
+        List of keys to keep in atoms.arrays. Default is ['numbers', 'positions', 'tags'].
+        
+    Returns
+    -------
+    wfl.configset.OutputSpec
+        The output specification containing the processed configurations.
+    """
+    if keep_info_keys is None:
+        keep_info_keys = ['slab', 'species']
+    if keep_array_keys is None:
+        keep_array_keys = ['numbers', 'positions', 'tags']
+        
+    # Merge defaults with user provided lists to ensure minimum keys are always kept
+    default_info = {'slab', 'species'}
+    default_arrays = {'numbers', 'positions', 'tags'}
+    
+    keep_info_keys = list(set(keep_info_keys) | default_info)
+    keep_array_keys = list(set(keep_array_keys) | default_arrays)
+
+    return wfl_map(
+        inputs=inputs, 
+        outputs=outputs,
+        map_func=_clean_atoms_attributes,
+        args=[keep_info_keys, keep_array_keys]
+    )

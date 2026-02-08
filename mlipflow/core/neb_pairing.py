@@ -20,7 +20,7 @@ class NEBPairFinder:
         Args:
             structures_file (str): Path to the XYZ file containing structures.
         """
-        self.structures = read(structures_file, index=':')
+        self.structures = ConfigSet(structures_file).items
         
         # Count and print structure statistics
         counts = {}
