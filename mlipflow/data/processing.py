@@ -126,10 +126,7 @@ def _clean_atoms_attributes(at: Atoms, keep_info_keys: list, keep_array_keys: li
     ase.Atoms
         Cleaned Atoms object.
     """
-    # Clean info
     at.info = {k: v for k, v in at.info.items() if k in keep_info_keys}
-    
-    # Clean arrays
     at.arrays = {k: v for k, v in at.arrays.items() if k in keep_array_keys}
     
     return at
@@ -168,8 +165,8 @@ def clean_configset_data(inputs, outputs, keep_info_keys=None, keep_array_keys=N
     keep_array_keys = list(set(keep_array_keys) | default_arrays)
 
     return wfl_map(
-        inputs=ConfigSet(inputs), 
-        outputs=OutputSpec(outputs),
+        inputs=inputs, 
+        outputs=outputs,
         map_func=_clean_atoms_attributes,
         args=[keep_info_keys, keep_array_keys]
     )
