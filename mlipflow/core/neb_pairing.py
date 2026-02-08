@@ -20,7 +20,7 @@ class NEBPairFinder:
         Args:
             structures_file (str): Path to the XYZ file containing structures.
         """
-        self.structures = ConfigSet(structures_file).items
+        self.structures = read(structures_file, index=':')
         
         # Count and print structure statistics
         counts = {}
@@ -263,24 +263,16 @@ def create_neb_pairs(
             )
         all_paths.append(paths)
 
-    def apply_constraints(at, constraint_list):
-        if isinstance(at, list):
-            for a in at:
-                a.constraints = constraint_list
-        else:
-            at.constraints = constraint_list
-        return at
-
-    # Apply wfl_map to each list of paths, using matching constraint list
+    # Apply constraints manually
     mapped_results = []
     for (rxn_string, constraint_list), paths in zip(rxn_constraints_dict.items(), all_paths):
-        mapped_results.append(
-            wfl_map(
-                inputs=ConfigSet(paths),
-                outputs=OutputSpec(),
-                map_func=apply_constraints,
-                args=[constraint_list]
-            )
-        )
+         # paths is list of bands.
+         processed_paths = []
+         for band in paths:
+             # Apply constraints to each image in band
+             for at in band:
+                 at.constraints = constraint_list
+             processed_paths.append(band)
+         mapped_results.append(processed_paths)
 
     return mapped_results

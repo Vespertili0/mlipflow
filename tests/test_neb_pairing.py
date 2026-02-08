@@ -5,7 +5,7 @@ import numpy as np
 from ase.constraints import FixAtoms, FixBondLength
 from ase.io import read
 from mlipflow.core.neb_pairing import create_neb_pairs
-from mlipflow.strategies.structure_generators import OPTGen
+from mlipflow.strategies.structure_generators import NEBGen
 from mlipflow.strategies.dft import EMTCalc
 from wfl.configset import ConfigSet
 
@@ -29,7 +29,8 @@ def test_neb_pairing_and_opt(test_data_setup):
         'tFURao+H -> FA': [FixAtoms(list(range(32))), FixBondLength(70, 76)]
     }
     n_pathways = 3
-    opt_params = {'fmax': 0.05, 'steps': 5}
+    # NEBGen accepts neb_params. Using low steps for testing.
+    neb_params = {'fmax': 0.05, 'steps': 5}
     
     # Initialize strategy and get calculator tuple
     calculator_strategy = EMTCalc()
@@ -51,38 +52,40 @@ def test_neb_pairing_and_opt(test_data_setup):
         
         assert len(results) == len(rxn_constraints_dict)
         
-        # Run OPTGen on resulting structures
+        # Run NEBGen on resulting structures
         # Use traj_subselect=None to keep full trajectory even if unconverged
-        opt_gen = OPTGen(opt_params=opt_params, traj_subselect=None)
+        neb_gen = NEBGen(neb_params=neb_params, traj_subselect=None)
         
-        # Iterate over results (ConfigSets)
-        for i, config_set in enumerate(results):
-             # Extract all atoms from all bands and flatten
-             atoms_list = []
-             for band in config_set:
-                 if isinstance(band, list):
-                     atoms_list.extend(band)
-                 else:
-                     atoms_list.append(band)
+        # Iterate over results (list of lists of bands)
+        for i, bands_list in enumerate(results):
+             # results is now a list of lists of bands.
+             # bands_list is a list of bands.
 
-             # Create a new ConfigSet for OPTGen from flattened list
-             # OPTGen expects inputs to be a list or ConfigSet.
+             # Check first item
+             if len(bands_list) > 0:
+                 assert isinstance(bands_list[0], list), "Expected list of Atoms (band)"
+                 assert len(bands_list[0]) > 0, "Band should not be empty"
+                 # Ensure contents are Atoms
+                 assert hasattr(bands_list[0][0], 'get_positions'), "Band should contain Atoms objects"
 
-             out_file = tmp_path / f"opt_results_{method}_{i}.xyz"
+             out_file = tmp_path / f"neb_results_{method}_{i}.xyz"
 
-             opt_gen.generate_new_structures(
-                 in_file=atoms_list,
+             neb_gen.generate_new_structures(
+                 in_file=bands_list,
                  out_file=str(out_file),
                  calculator=calculator_tuple # passing the tuple as calculator
              )
 
              # Check if output file exists and has content
              assert out_file.exists()
+             # Result of NEB is usually the relaxed band or trajectory.
+             # If traj_subselect=None, it might be the full trajectory of bands?
+             # Or just the relaxed bands?
+             # wfl.generate.neb usually outputs the relaxed images.
+
              optimized_atoms = read(str(out_file), ':')
              assert len(optimized_atoms) > 0
 
-             # Check if optimization happened
-             # Use generic check, or specific key if known
-             # Since we use EMTCalc (generic), it might add DFT_energy or similar
-             # OPTGen puts 'optimize_config_type' in info
-             assert 'optimize_config_type' in optimized_atoms[0].info
+             # Check for NEB specific info tags if any, or just generic optimization tags
+             # wfl NEB stores 'neb_config_type'
+             assert 'neb_config_type' in optimized_atoms[0].info
