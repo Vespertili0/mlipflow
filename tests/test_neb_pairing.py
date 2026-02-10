@@ -124,17 +124,11 @@ def test_neb_pairing_and_opt(test_data_setup):
              # calculator_tuple[0] is EMT. EMT should provide potential energy and forces.
              # Check if 'energy' or 'forces' are in arrays/info or results
              # The calculator results are usually saved in info/arrays with prefix or directly.
-             # wfl saves results.
+             # mlipflow.core.neb uses at_copy_save_calc_results(prefix=results_prefix)
+             # default results_prefix is 'last_op__neb_'
 
-             # Check first atom that is not initial/final (intermediate or optimized)
-             for at in optimized_atoms_list:
-                 if 'neb_config_type' in at.info:
-                     # Check if results are present.
-                     # create_neb_pairs generates initial path. NEBGen optimizes it.
-                     # If optimized, it should have energy/forces.
-                     # wfl usually stores results in at.calc or info/arrays.
-                     # But at_copy_save_calc_results might move them.
-                     pass
+             has_energy = any('last_op__neb_energy' in at.info for at in optimized_atoms_list)
+             assert has_energy, f"Output atoms should contain 'last_op__neb_energy' info for method {method}"
 
              # Ensure constraints are preserved in output
              # Pick an atom and check constraints
