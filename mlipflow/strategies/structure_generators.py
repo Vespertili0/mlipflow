@@ -129,7 +129,7 @@ class OPTGen(StructureGenStrategy):
                 traj_subselect=self.traj_subselect,
                 autopara_info=AutoparaInfo(
                     remote_info=remote_info,
-                    num_inputs_per_python_subprocess=2,
+                    num_inputs_per_python_subprocess=1,
                     num_python_subprocesses=1
                 ),
                 **self.opt_params
