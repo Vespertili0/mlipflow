@@ -9,6 +9,7 @@ from mlipflow.core.md_nvt import md as run_md
 #from wfl.generate.optimize import optimize as optimize
 from mlipflow.core.relaxation_fire import optimize
 from mlipflow.adapters.wflio import ForceCheck
+from wfl.generate.neb import NEB as run_neb
 #####################################################################
 
 # Base Strategy class for structure generator approach
@@ -128,7 +129,7 @@ class OPTGen(StructureGenStrategy):
                 traj_subselect=self.traj_subselect,
                 autopara_info=AutoparaInfo(
                     remote_info=remote_info,
-                    num_inputs_per_python_subprocess=2,
+                    num_inputs_per_python_subprocess=1,
                     num_python_subprocesses=1
                 ),
                 **self.opt_params
@@ -136,9 +137,50 @@ class OPTGen(StructureGenStrategy):
 
 # Strategy using CI-NEB as generator
 class NEBGen(StructureGenStrategy):
-    def __init__(self) -> None:
+    def __init__(self, traj_subselect="last_converged", neb_params={'fmax': 0.1, 'steps': 1000}) -> None:
         super().__init__()
+        self.traj_subselect = traj_subselect
+        self.neb_params = neb_params
         self.calc_prefix = 'neb'
 
-    def generate_new_structures(self) -> None:
-        pass
+    def generate_new_structures(self, in_file, out_file, calculator, remote_info=None) -> None:
+        """
+        Generates new configs via the wfl.generate.neb.NEB run function.
+
+        Parameters
+        ----------
+        in_file:  list/ConfigSet
+            list of configs (bands) to be relaxed.
+        out_file: str
+            file in which the relaxation trajectories will be stored
+        calculator: ase-calculator object
+        remote_info: wfl-RemoteInfo object, optional
+
+        **kwargs:
+        neb_params will be passed as kwargs
+        """
+        in_config = ConfigSet(in_file)
+        out_config = OutputSpec(out_file)
+
+        if remote_info is None:
+            run_neb(
+                inputs=in_config,
+                outputs=out_config,
+                calculator=calculator,
+                traj_subselect=self.traj_subselect,
+                **self.neb_params
+            )
+
+        elif remote_info:
+            run_neb(
+                inputs=in_config,
+                outputs=out_config,
+                calculator=calculator,
+                traj_subselect=self.traj_subselect,
+                autopara_info=AutoparaInfo(
+                    remote_info=remote_info,
+                    num_inputs_per_python_subprocess=1,
+                    num_python_subprocesses=1
+                ),
+                **self.neb_params
+            )
