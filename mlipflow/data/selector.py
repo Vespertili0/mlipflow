@@ -366,15 +366,14 @@ class ConfigurationSelector:
 
         # 3. FPS
         print(f"Selecting {n_fps} via FPS (with prior knowledge)...")
-        fps_out = OutputSpec(f'{self.output_prefix}_final_selection.xyz')
         fps_selected, _ = self.greedy_fps_with_tracking(
             inputs=self.global_desc,
-            outputs=fps_out,
+            outputs=OutputSpec(),
             num=n_fps,
             at_descs_info_key=self.desc_key,
             prev_selected_descs=prev_descs
         )
-        
+        OutputSpec(f'{self.output_prefix}_final_selection.xyz').write(ConfigSet([cur_selected, hist_selected, fps_selected]))
         return cur_selected, hist_selected, fps_selected
 
     def plot_elbow(self, distances, n_optimal):

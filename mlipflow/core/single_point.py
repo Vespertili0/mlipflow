@@ -5,7 +5,10 @@ from ase.io import read
 from mlipflow.data import clean_up, merge_clean_chunks
 
 
-def run_single_point(in_file: str, out_file: str, output_prefix: str, calculator: tuple, remote_info: object = None) -> None:
+def run_single_point(
+        in_file: str, out_file: str, output_prefix: str, 
+        calculator: tuple, remote_info: object = None
+        ) -> None:
     """
     Run a single point calculation using the provided calculator.
 
@@ -41,9 +44,11 @@ def run_single_point(in_file: str, out_file: str, output_prefix: str, calculator
         )
 
 
-def run_chunked_qe_sp(in_file: str, out_file: str, chunk_size: int, qchem_strategy: object,
-                   ecut_eV: int = 450, kpts: tuple = (3,3,1), num_inputs_per_queued_job: int = 2,
-                   dipole: bool = False, dftd3: bool = False) -> None:
+def run_chunked_qe_sp(
+        in_file: str, out_file: str, chunk_size: int, qchem_strategy: object, 
+        keep_info_keys: list = ['DFT_energy'], ecut_eV: int = 450, kpts: tuple = (3,3,1),
+        num_inputs_per_queued_job: int = 2, dipole: bool = False, dftd3: bool = False
+        ) -> None:
     """
     Run a chunked single point calculation using the provided calculator.
     
@@ -87,23 +92,25 @@ def run_chunked_qe_sp(in_file: str, out_file: str, chunk_size: int, qchem_strate
     # merge all chunks into one file
     merge_clean_chunks(
         in_files=chunk_files,
-        out_file=out_file
+        out_file=out_file,
+        keep_info_keys=keep_info_keys
     )
     
     # remove the temporary files
     clean_up(key='tmp_')
 
 
-def _chunk_indices(in_file: str, chunk_size: int = 150) -> list[str]:
+def _chunk_indices(in_file: str, chunk_size: int = 50) -> list[str]:
     """
     Generate chunk indices for splitting the file.
 
     Args:
-        in_file (str): Input file path.
-        chunk_size (int): Size of chunks. Defaults to 150.
+        in_file (str): Input file path or ConfigSet object.
+        chunk_size (int): Size of chunks. Defaults to 50.
 
     Returns:
         list[str]: List of index strings in format 'start:end'.
     """
-    n_configs = len(read(in_file, index=':'))
+    configs = list(ConfigSet(in_file))
+    n_configs = len(configs)
     return [f'{i}:{min(i+chunk_size, n_configs)}' for i in range(0, n_configs, chunk_size)]

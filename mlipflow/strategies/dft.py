@@ -69,7 +69,7 @@ class QECalculator(QChemStrategy):
         pseudo_dir (str): Directory containing pseudopotentials.
         pseudopotentials (dict): Map of element to pseudopotential file.
     """
-    def __init__(self, basic_params: str, pseudo_dir: str) -> None:
+    def __init__(self, basic_params: str, pseudopots: dict, pseudo_dir: str) -> None:
         """
         Initialize the QECalculator.
 
@@ -80,15 +80,7 @@ class QECalculator(QChemStrategy):
         super().__init__()
         self.basic_params = basic_params
         self.pseudo_dir = pseudo_dir
-        self.pseudopotentials = {
-            'Cu': 'Cu.pbe-dn-kjpaw_psl.1.0.0.UPF', 
-            'O' : 'O.pbe-n-kjpaw_psl.1.0.0.UPF',
-            'C' : 'C.pbe-n-kjpaw_psl.1.0.0.UPF', 
-            'H' : 'H.pbe-kjpaw_psl.1.0.0.UPF',
-            'N': 'N.pbe-n-kjpaw_psl.1.0.0.UPF', 
-            'Pd': 'Pd.pbe-n-kjpaw_psl.1.0.0.UPF',
-            'K': 'K.pbe-spn-kjpaw_psl.1.0.0.UPF'
-        }
+        self.pseudopotentials = pseudopots
         
 
     def get_calculator(self, job_name: str, ecut_eV: int = 450, kpts: tuple = (3,3,1),

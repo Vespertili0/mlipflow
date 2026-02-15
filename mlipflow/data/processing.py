@@ -86,7 +86,7 @@ def split_success_failed_configs(configs: list, key: str = 'DFT_energy') -> tupl
     return success_configs, failed_configs
 
 
-def merge_clean_chunks(in_files: list, out_file: str) -> None:
+def merge_clean_chunks(in_files: list, out_file: str, keep_info_keys: list =['DFT_energy']) -> None:
     """Merge all chunks into one file and clean up the data.info."""
     success_configs = []
     failed_configs = []
@@ -99,7 +99,7 @@ def merge_clean_chunks(in_files: list, out_file: str) -> None:
         for config in success:
             config.info = filter_info_dict(
                 info_dict=config.info,
-                keep_info=['DFT_energy']
+                keep_info=keep_info_keys
             )
         success_configs += success
         failed_configs += failed
