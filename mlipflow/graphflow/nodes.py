@@ -1,7 +1,6 @@
 import logging
-from typing import TypedDict, Optional
-from dataclasses import dataclass
 from typing_extensions import NotRequired
+from typing import TypedDict, Optional, Any
 
 #from wfl.utils import logging
 from mlipflow.data.io import clean_up
@@ -30,6 +29,7 @@ class EnsembleState(TypedDict):
     qchem_strategy: QChemStrategy
     mlip_strategy: MLIPStrategy
     structure_gen_strategy: NotRequired[StructureGenStrategy]
+    calculation_kwargs: NotRequired[dict[str, Any]]
 
 
 @dataclass
@@ -83,11 +83,26 @@ def run_dft_sp(state: EnsembleState) -> EnsembleState:
             in_file=configs,
             out_file=outfile,
             output_prefix=state['qchem_strategy'].qe_prefix,
+    # Get DFT kwargs from state or use defaults
+    dft_kwargs = state.get('calculation_kwargs', {}).get('dft_scf', {})
+    
+    # Default parameters if not provided in kwargs
+    default_dft_params = {
+        'ecut_eV': 450,
+        'kpts': (3,3,1),
+        'calc_type': 'scf'
+    }
+    # Update defaults with provided kwargs
+    calc_params = {**default_dft_params, **dft_kwargs}
+
+    try:   
+        run_single_point(
+            in_file=configs,
+            out_file=outfile,
+            output_prefix=state['qchem_strategy'].qe_prefix,
             calculator=state['qchem_strategy'].get_calculator(
                 job_name='QE_',
-                ecut_eV=450,
-                kpts=(3,3,1),
-                calc_type='scf'
+                **calc_params
             ),
             remote_info=state['qchem_strategy'].remote_info
         )
@@ -118,16 +133,23 @@ def run_dft_sp_block(state: EnsembleState) -> EnsembleState:
     configs = state['configs']
     outfile = [xyz.replace('.xyz', '.dft.xyz') for xyz in configs]
     
+    # Get DFT kwargs from state or use defaults
+    dft_kwargs = state.get('calculation_kwargs', {}).get('dft_scf', {})
+    
+    # Default parameters need to be handled carefully for run_chunked_qe_sp
+    # It seems run_chunked_qe_sp takes explicit args 
+    
     try:   
         run_chunked_qe_sp(
             in_file=configs,
             out_file=outfile,
             chunk_size=70,
             qchem_strategy=state['qchem_strategy'],
-            kpts=(3,3,1),
-            dipole=False,
-            dftd3=False,
-            num_inputs_per_queued_job=1
+            kpts=dft_kwargs.get('kpts', (3,3,1)),
+            dipole=dft_kwargs.get('dipole', False),
+            dftd3=dft_kwargs.get('dftd3', False),
+            ecut_eV=dft_kwargs.get('ecut_eV', 450),
+            num_inputs_per_queued_job=dft_kwargs.get('num_inputs_per_queued_job', 1)
             )
         logger.debug(f"DFT calculations completed successfully")
     except Exception as e:
@@ -171,6 +193,9 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
     configs = state['configs']
     outfile = [xyz.replace('.xyz', '.mace.xyz') for xyz in configs]
     
+    # Get MLIP kwargs from state
+    mlip_kwargs = state.get('calculation_kwargs', {}).get('mlip_sp', {})
+
     try:   
         run_single_point(
             in_file=configs,
@@ -178,7 +203,7 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
             output_prefix=mlip.mlip_prefix,
             calculator=mlip.get_calculator(
                 job_name='mSP_',
-                dispersion=False
+                dispersion=mlip_kwargs.get('dispersion', False)
                 ),
             remote_info=mlip.remote_info
         )
@@ -248,6 +273,26 @@ def run_mlip_structure_generation(state: EnsembleState) -> EnsembleState:
     mlip = state['mlip_strategy']
     structure_generator = state['structure_gen_strategy']
     configs = state['configs']
+    # Get MLIP kwargs for structure generation
+    mlip_kwargs = state.get('calculation_kwargs', {}).get('mlip_gen', {})
+    
+    # Determine the property prefix based on the strategy type
+    # MDGen -> last_op__md_
+    # OPTGen -> last_op__optimize_
+    prefix_map = {
+        'md': 'md',
+        'opt': 'optimize',
+        'neb': 'neb' # Assuming standard naming, check checking wfl/neb
+    }
+    
+    # Default to 'optimize' if unknown, but better to be safe
+    # structure_generator.calc_prefix should be 'md', 'opt', etc.
+    calc_type = getattr(structure_generator, 'calc_prefix', 'opt')
+    op_name = prefix_map.get(calc_type, 'optimize')
+    
+    energy_key = f'last_op__{op_name}_energy'
+    force_key = f'last_op__{op_name}_forces'
+
     outfile = [
         xyz.replace('.', f'_{structure_generator.calc_prefix}.') for xyz in configs
     ]
@@ -257,13 +302,13 @@ def run_mlip_structure_generation(state: EnsembleState) -> EnsembleState:
             out_file=outfile,
             calculator=mlip.get_calculator(
                 job_name='mSG_',
-                dispersion=True
+                dispersion=mlip_kwargs.get('dispersion', True)
                 ),
             remote_info=mlip.remote_info
         )
         tag_dict={
-            'info':{'last_op__optimize_energy': f'{mlip.mlip_prefix}energy'},
-            'array':{'last_op__optimize_forces': f'{mlip.mlip_prefix}forces'}
+            'info':{energy_key: f'{mlip.mlip_prefix}energy'},
+            'array':{force_key: f'{mlip.mlip_prefix}forces'}
         }
         for tag_type, tags in tag_dict.items():
             for xyz in outfile:
