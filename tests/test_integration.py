@@ -87,9 +87,6 @@ def test_execute_dft_single_point_block_integration(real_data_setup):
     # Initialize graph
     app = execute_dft_single_point_block()
 
-    # Run graph
-    final_state = app.invoke(state)
-
     # Check results
     # assess_n_select should produce 'train_dft.xyz' and 'test_dft.xyz' (prefixed/suffixed)
     # The node assess_n_select hardcodes output file name to 'dft.xyz'
