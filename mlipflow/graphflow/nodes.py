@@ -83,23 +83,6 @@ def run_dft_sp(state: EnsembleState) -> EnsembleState:
             in_file=configs,
             out_file=outfile,
             output_prefix=state['qchem_strategy'].qe_prefix,
-    # Get DFT kwargs from state or use defaults
-    dft_kwargs = state.get('calculation_kwargs', {}).get('dft_scf', {})
-    
-    # Default parameters if not provided in kwargs
-    default_dft_params = {
-        'ecut_eV': 450,
-        'kpts': (3,3,1),
-        'calc_type': 'scf'
-    }
-    # Update defaults with provided kwargs
-    calc_params = {**default_dft_params, **dft_kwargs}
-
-    try:   
-        run_single_point(
-            in_file=configs,
-            out_file=outfile,
-            output_prefix=state['qchem_strategy'].qe_prefix,
             calculator=state['qchem_strategy'].get_calculator(
                 job_name='QE_',
                 **calc_params
