@@ -10,7 +10,7 @@ from wfl.configset import ConfigSet, OutputSpec
 from wfl.map import map as wfl_map
 
 #from wfl.utils import logging
-from mlipflow.data.io import clean_up
+from mlipflow.data import clean_up
 from mlipflow.data.processing import update_configset_tag, clean_configset_data
 from mlipflow.data.selection import split_configset_by_force_agreement
 from mlipflow.core.single_point import run_single_point, run_chunked_qe_sp
@@ -54,6 +54,7 @@ class EnsembleState(TypedDict):
     mlip_strategy: MLIPStrategy
     structure_gen_strategy: NotRequired[StructureGenStrategy]
     calculation_kwargs: NotRequired[dict[str, Any]]
+    original_configs: NotRequired[list[str]]
 
 
 @dataclass
@@ -63,27 +64,7 @@ class WorkflowError(Exception):
     state: Optional[EnsembleState] = None
 
 
-
-#def validate_state(state: EnsembleState, required_keys: list[str]) -> None:
-#    """Validate state contains required keys with non-empty values"""
-#    missing = [key for key in required_keys if not state.get(key)]
-#    if missing:
-#        raise WorkflowError(f"Missing required state keys: {missing}", state)
-#
-#
-#def validate_workflow(workflow, initial_state: EnsembleState) -> None:
-#    """Validate workflow configuration and initial state"""
-#    # Validate nodes
-#    required_nodes = {'dft_sp', 'train_mace'}
-#    missing_nodes = required_nodes - set(workflow.nodes)
-#    if missing_nodes:
-#        raise ValueError(f"Missing required nodes: {missing_nodes}")
-#        
-#    # Validate initial state
-#    validate_state(initial_state, ['configs', 'qchem_strategy', 'mlip_strategy'])
-
-
-def apply_static_constraints(at: Atoms, constraints: list[Any]) -> Atoms:
+def _apply_static_constraints(at: Atoms, constraints: list[Any]) -> Atoms:
     """
     Applies a list of ASE constraints to the Atoms object.
     
@@ -98,6 +79,14 @@ def apply_static_constraints(at: Atoms, constraints: list[Any]) -> Atoms:
         # We replace existing constraints to match the behavior of the original script
         at.constraints = constraints
     return at
+
+
+def merge_configs(state: EnsembleState) -> EnsembleState:
+    """Merge original and generated configurations."""
+    if not state.get('original_configs'):
+        raise ValueError("No original configurations provided in state")
+    
+    return {**state, 'configs': ConfigSet(state['original_configs']) + ConfigSet(state['configs'])}
 
 
 def run_dft_sp(state: EnsembleState) -> EnsembleState:
@@ -187,19 +176,6 @@ def run_dft_sp_block(state: EnsembleState) -> EnsembleState:
  
     return {**state, 'configs': outfile, 'outfile': None}
 
-#def clean_dft_data(state: EnsembleState) -> EnsembleState:
-#    """Clean DFT data by removing unnecessary info and standardizing keys.
-#    
-#    Args:
-#        state (EnsembleState): Current workflow state
-#    Returns:
-#        EnsembleState: Updated workflow state
-#    Raises:
-#        KeyError: If required state keys are missing
-#        ValueError: If configs list is empty
-#    """
-#    check_maxforce_and_cleanarrays
-
 
 def run_mlip_sp(state: EnsembleState) -> EnsembleState:
     """Run MLIP single-point calculations on configurations.
@@ -252,10 +228,6 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
     return {**state, 'configs': outfile, 'outfile': None}
 
 
-#def prepare_train_test_sets(state, split_ratio=0.8):
-#    pass
-
-
 def assess_n_select(state: EnsembleState) -> EnsembleState:
     main_suffix='train'
     side_suffix='test'    
@@ -274,12 +246,6 @@ def assess_n_select(state: EnsembleState) -> EnsembleState:
     return {**state, 'configs': train_data, 'outfile': test_data}
 
 
-#def pool_mlip_training_data(state: EnsembleState) -> EnsembleState:
-#
-#
-#    return {**state}
-
-
 def run_mace_fit(state: EnsembleState) -> EnsembleState:
     configs = state['configs']
     test_configs = state['outfile']
@@ -293,7 +259,7 @@ def run_mace_fit(state: EnsembleState) -> EnsembleState:
     return {**state, 'outfile': None}
 
 
-def _run_structure_generation_logic(state: EnsembleState, configs: Any) -> EnsembleState:
+def _run_structure_generation_logic(state: EnsembleState, configs: Any, mlip_gen_kwargs_override: Optional[dict] = None) -> EnsembleState:
     """
     Internal helper to run structure generation logic on specific configs.
     configs can be list[str], ConfigSet, or list[Atoms].
@@ -308,7 +274,11 @@ def _run_structure_generation_logic(state: EnsembleState, configs: Any) -> Ensem
     structure_generator = state['structure_gen_strategy']
     
     # Get MLIP kwargs for structure generation
+    # Allow override for specific steps (e.g. basin vs neb)
     mlip_kwargs = state.get('calculation_kwargs', {}).get('mlip_gen', {})
+    if mlip_gen_kwargs_override:
+        mlip_kwargs = {**mlip_kwargs, **mlip_gen_kwargs_override}
+    
     
     # Determine the property prefix based on the strategy type
     prefix_map = {
@@ -367,6 +337,12 @@ def _run_structure_generation_logic(state: EnsembleState, configs: Any) -> Ensem
         output_arg = outfile[0]
         outfile = [output_arg]
 
+    # Clean up any previous .mace.xyz files if we are overwriting, to avoid appending to old runs?
+    # WFL/ASE append by default sometimes. 
+    # But here we probably want fresh files for this step.
+    # We rely on wfl/ase write modes.
+
+
     try:
         structure_generator.generate_new_structures(
             in_file=configs,
@@ -402,32 +378,6 @@ def run_mlip_structure_generation(state: EnsembleState) -> EnsembleState:
     return _run_structure_generation_logic(state, state['configs'])
 
 
-#def evalute_mlip_error(state: EnsembleState) -> EnsembleState:
-#    """
-#    Evaluate MLIP error against DFT reference data.
-#    
-#    Args:
-#        state (EnsembleState): Current workflow state
-#    Returns:
-#        EnsembleState: Updated workflow state
-#    Raises:
-#        KeyError: If required state keys are missing
-#        ValueError: If configs list is empty
-#    """
-#    if not state.get('configs'):
-#        raise ValueError("No configurations provided in state")
-#    
-#    try:
-#        calculate_mlip_error(
-#            in_configs=state['configs'],
-#            out_file='error_analysis.xyz',
-#            calc_property_prefix=state['mlip_strategy'].mlip_prefix,
-#            fig_dir='.'
-#            )
-#    except Exception as e:
-#        logger.error(f"MLIP error evaluation failed: {str(e)}")
-#        raise RuntimeError(f"MLIP error evaluation failed: {str(e)}")
-
 def run_apply_basin_constraints(state: EnsembleState) -> EnsembleState:
     """
     Apply basin constraints and run structure generation immediately.
@@ -441,7 +391,7 @@ def run_apply_basin_constraints(state: EnsembleState) -> EnsembleState:
     
     logger.info(f"Applying {len(basin_constraints)} basin constraints and running generation")
     
-    map_func = partial(apply_static_constraints, constraints=basin_constraints)
+    map_func = partial(_apply_static_constraints, constraints=basin_constraints)
     
     # Create constrained input iterable
     # We use ConfigSet to read, apply map_func to get iterator of constrained atoms
@@ -451,8 +401,11 @@ def run_apply_basin_constraints(state: EnsembleState) -> EnsembleState:
         map_func=map_func
     )
     
+    # Check for override kwargs
+    basin_mlip_gen = sampling_kwargs.get('basin_mlip_gen', None)
+
     # Pass directly to generation logic
-    return _run_structure_generation_logic(state, constrained_inputs)
+    return _run_structure_generation_logic(state, constrained_inputs, mlip_gen_kwargs_override=basin_mlip_gen)
 
 
 def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
@@ -469,6 +422,9 @@ def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
         raise ValueError("neb_config with 'rxn_constraints_dict' is required for NEB pair generation.")
         
     logger.info("Generating NEB pairs and running generation")
+    
+    # Capture the input configs (from Basin MD) to merge later
+    original_configs = state['configs']
     
     all_prepared_configs = []
     
@@ -491,8 +447,14 @@ def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
         if os.path.exists(cleaned_file):
             os.remove(cleaned_file)
             
+    # Check for override kwargs
+    neb_mlip_gen = sampling_kwargs.get('neb_mlip_gen', None)
+    
     # Pass flattened list of prepared atoms to generation logic
-    return _run_structure_generation_logic(state, all_prepared_configs)
+    gen_result = _run_structure_generation_logic(state, all_prepared_configs, mlip_gen_kwargs_override=neb_mlip_gen)
+
+    # Update state: configs now contains ALL generated structures (Basin + NEB) so MLIP SP runs on everything
+    return {**state, 'configs': gen_result['configs'], 'original_configs': original_configs}
 
 
 def run_configuration_selection(state: EnsembleState) -> EnsembleState:
@@ -541,3 +503,64 @@ def run_configuration_selection(state: EnsembleState) -> EnsembleState:
     # wait, select_final writes to f'{self.output_prefix}_final_selection.xyz'.
     
     return {**state, 'configs': [final_output_file]}
+
+
+
+#def validate_state(state: EnsembleState, required_keys: list[str]) -> None:
+#    """Validate state contains required keys with non-empty values"""
+#    missing = [key for key in required_keys if not state.get(key)]
+#    if missing:
+#        raise WorkflowError(f"Missing required state keys: {missing}", state)
+#
+#
+#def validate_workflow(workflow, initial_state: EnsembleState) -> None:
+#    """Validate workflow configuration and initial state"""
+#    # Validate nodes
+#    required_nodes = {'dft_sp', 'train_mace'}
+#    missing_nodes = required_nodes - set(workflow.nodes)
+#    if missing_nodes:
+#        raise ValueError(f"Missing required nodes: {missing_nodes}")
+#        
+#    # Validate initial state
+#    validate_state(initial_state, ['configs', 'qchem_strategy', 'mlip_strategy'])
+
+
+#def evalute_mlip_error(state: EnsembleState) -> EnsembleState:
+#    """
+#    Evaluate MLIP error against DFT reference data.
+#    
+#    Args:
+#        state (EnsembleState): Current workflow state
+#    Returns:
+#        EnsembleState: Updated workflow state
+#    Raises:
+#        KeyError: If required state keys are missing
+#        ValueError: If configs list is empty
+#    """
+#    if not state.get('configs'):
+#        raise ValueError("No configurations provided in state")
+#    
+#    try:
+#        calculate_mlip_error(
+#            in_configs=state['configs'],
+#            out_file='error_analysis.xyz',
+#            calc_property_prefix=state['mlip_strategy'].mlip_prefix,
+#            fig_dir='.'
+#            )
+#    except Exception as e:
+#        logger.error(f"MLIP error evaluation failed: {str(e)}")
+#        raise RuntimeError(f"MLIP error evaluation failed: {str(e)}")
+
+
+#def clean_dft_data(state: EnsembleState) -> EnsembleState:
+#    """Clean DFT data by removing unnecessary info and standardizing keys.
+#    
+#    Args:
+#        state (EnsembleState): Current workflow state
+#    Returns:
+#        EnsembleState: Updated workflow state
+#    Raises:
+#        KeyError: If required state keys are missing
+#        ValueError: If configs list is empty
+#    """
+#    check_maxforce_and_cleanarrays
