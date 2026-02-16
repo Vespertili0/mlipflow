@@ -58,7 +58,7 @@ def execute_initial_basin_pathsampling_md_block():
     Constraints are applied in-memory and passed to generation immediately.
     """
     graph = StateGraph(EnsembleState)
-   graph.add_node('apply_and_run_basin', run_apply_basin_constraints)    
+    graph.add_node('apply_and_run_basin', run_apply_basin_constraints)
     graph.add_node('gen_and_run_neb', run_generate_neb_pairs)
     graph.add_node('mlip_sp', run_mlip_sp)
 

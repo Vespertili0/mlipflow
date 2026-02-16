@@ -49,17 +49,31 @@ def _rename_configset_tags(at, old_tag, new_tag, tag_type='info') -> Atoms:
 
 def update_configset_tag(in_config, out_file, tag_dict, tag_type) -> None:
     """Update tags in a wfl.configset ConfigSet object using wfl.map-function."""
-    configs = ConfigSet(in_config)
-    OutputSpec(out_file, overwrite=True).write(configs)
-    output = OutputSpec(out_file, overwrite=True)
+    import tempfile
+    import os
+
+    def _apply_renames(at, tags, t_type):
+        for old, new in tags.items():
+            _rename_configset_tags(at, old, new, t_type)
+        return at
+
+    # Create temp file to avoid overwriting input if in_config matches out_file
+    dir_name = os.path.dirname(out_file) if out_file else '.'
+    fd, tmp_path = tempfile.mkstemp(suffix='.xyz', dir=dir_name)
+    os.close(fd)
     
-    for old_tag, new_tag in tag_dict.items():
+    try:
         wfl_map(
-            inputs=configs, 
-            outputs=output,
-            map_func=_rename_configset_tags,
-            args=[old_tag, new_tag, tag_type]
+            inputs=ConfigSet(in_config),
+            outputs=OutputSpec(tmp_path, overwrite=True),
+            map_func=_apply_renames,
+            args=[tag_dict, tag_type]
         )
+        os.replace(tmp_path, out_file)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
 
 
 def add_configset_tag(in_config, out_file, tag_dict) -> None:
