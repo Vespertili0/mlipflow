@@ -1,6 +1,7 @@
 import logging
 from typing_extensions import NotRequired
 from typing import TypedDict, Optional, Any
+from dataclasses import dataclass
 
 from functools import partial
 from ase.io import write
@@ -215,7 +216,10 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
     outfile = [xyz.replace('.xyz', '.mace.xyz') for xyz in configs]
     
     # Get MLIP kwargs from state
-    mlip_kwargs = state.get('calculation_kwargs', {}).get('mlip_sp', {})
+    mlip_kwargs = state.get('calculation_kwargs', {}).get('mlip_sp', {}).copy()
+    dispersion = mlip_kwargs.pop('dispersion', True)
+    num_inputs = mlip_kwargs.pop('num_inputs_per_queued_job', 300)
+    max_time = mlip_kwargs.pop('max_time', '01:30:00')
 
     try:   
         run_single_point(
@@ -224,9 +228,9 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
             output_prefix=mlip.mlip_prefix,
             calculator=mlip.get_calculator(
                 job_name='mSP_',
-                dispersion=mlip_kwargs.get('dispersion', True),
-                num_inputs_per_queued_job=mlip_kwargs.get('num_inputs_per_queued_job', 300),
-                max_time=mlip_kwargs.get('max_time', '01:30:00'),
+                dispersion=dispersion,
+                num_inputs_per_queued_job=num_inputs,
+                max_time=max_time,
                 **mlip_kwargs
                 ),
             remote_info=mlip.remote_info
@@ -347,20 +351,19 @@ def _run_structure_generation_logic(state: EnsembleState, configs: Any) -> Ensem
         xyz.replace('.xyz', f'_{structure_generator.calc_prefix}.xyz') for xyz in current_files
     ]
     
-    # Ensure outfile list length matches? valid only if 1-to-1.
-    # If prep node combined things (NEB pairs), we might have different number of items?
-    # run_generate_neb_pairs returns flattened list of files. 
-    # But here we are passing *in-memory* configs which don't map to files 1-to-1 necessarily?
-    # Actually, in run_generate_neb_pairs, we were writing to files. 
-    # BUT NOW we want to skip writing to files.
+    # Handle case where input is list of Atoms (e.g. from NEB generation) but outfile is list of files.
+    # We merge all outputs to the first file in the list.
+    output_arg = outfile
+    is_atoms_input = isinstance(configs, list) and (len(configs) == 0 or not isinstance(configs[0], str))
     
-    # So 'configs' is an iterable of Atoms with constraints.
-    # We want to write the result of structure_gen to 'outfile'.
-    
+    if is_atoms_input and isinstance(outfile, list) and len(outfile) > 0:
+        output_arg = outfile[0]
+        outfile = [output_arg]
+
     try:
         structure_generator.generate_new_structures(
             in_file=configs,
-            out_file=outfile,
+            out_file=output_arg,
             calculator=mlip.get_calculator(
                 job_name='mSG_',
                 dispersion=mlip_kwargs.get('dispersion', True)
