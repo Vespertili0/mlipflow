@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import MagicMock
 from ase.io import read
 from ase.constraints import FixAtoms
-from ase.calculators.lj import LennardJones
+from ase.calculators.emt import EMT
 from mlipflow.graphflow.nodes import EnsembleState
 from mlipflow.graphflow.graphs import execute_initial_basin_pathsampling_md_block
 from mlipflow.strategies.mlip import MACEModel
@@ -14,8 +14,7 @@ from mlipflow.strategies.dft import EMTCalc
 def test_execute_initial_basin_pathsampling_md_block(tmp_path):
     """
     Test execute_initial_basin_pathsampling_md_block with MACE and MDGen.
-    We mock MACE calculator with LennardJones to avoid version compatibility issues
-    and element support issues (EMT doesn't support C/H/O).
+    We mock MACE calculator with EMT to ensure compatibility.
     """
     # Setup paths
     test_dir = os.path.dirname(os.path.abspath(__file__))
@@ -38,12 +37,12 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
         # We don't need the actual model file if we mock get_calculator
         mlip_strategy = MACEModel(mlip_name="mace_test", run_mode="local")
 
-        # Mock get_calculator to return LennardJones calculator
+        # Mock get_calculator to return EMT calculator
         # The signature of get_calculator is (job_name, dispersion=True, ...)
-        # We return (LennardJones, [], kwargs) so wfl uses LennardJones(**kwargs)
+        # We return (EMT, [], kwargs) so wfl uses EMT(**kwargs)
         mlip_strategy.remote_info = None
-        # Use generic parameters for LJ
-        mlip_strategy.get_calculator = MagicMock(return_value=(LennardJones, [], {'sigma': 2.0, 'epsilon': 1.0}))
+        # Use generic parameters for EMT
+        mlip_strategy.get_calculator = MagicMock(return_value=(EMT, [], {}))
 
         # MDGen with minimal steps
         structure_gen_strategy = MDGen(

@@ -1,6 +1,6 @@
 import os, pytest
 from unittest.mock import MagicMock
-from ase.calculators.lj import LennardJones
+from ase.calculators.emt import EMT
 from mlipflow.strategies.structure_generators import OPTGen
 from mlipflow.strategies.mlip import MACEModel
 
@@ -13,8 +13,8 @@ def test_optgen_run(tmp_path):
         run_mode="local"
     )
 
-    # Mock get_calculator to return LennardJones calculator to avoid MACE execution errors
-    mace.get_calculator = MagicMock(return_value=(LennardJones, [], {'sigma': 2.0, 'epsilon': 1.0}))
+    # Mock get_calculator to return EMT calculator to avoid MACE execution errors
+    mace.get_calculator = MagicMock(return_value=(EMT, [], {}))
     mace.remote_info = None
 
     out_file = tmp_path / 'opt_test.xyz'

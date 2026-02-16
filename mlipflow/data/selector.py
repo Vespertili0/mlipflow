@@ -66,6 +66,11 @@ class ConfigurationSelector:
             map_func=self._get_average_desc,
             args=[self.desc_key]
         )
+        if not write_xyz:
+            # Force realization to list to allow multiple passes
+            # We store it as a list because ConfigSet might be single-pass
+            self.global_desc = list(self.global_desc)
+
         return self.global_desc
 
     def _ensure_descriptors_calculated(self):
@@ -176,6 +181,7 @@ class ConfigurationSelector:
                 similarity_row = at_descs[:, selected_indices[-1]].T @ at_descs
                 similarity_row[exclude_ind_list] = max_similarity
                 similarities_arr = np.vstack([similarities_arr, similarity_row])
+                similarities_arr[:, selected_indices[-1]] = max_similarity
 
         write_selected_and_clean(inputs, outputs, selected_indices, at_descs_info_key, keep_descriptor_info)
 
