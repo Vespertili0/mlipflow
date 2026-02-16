@@ -21,7 +21,7 @@ from mlipflow.graphflow.graphs import execute_initial_basin_pathsampling_md_bloc
 workflow = execute_initial_basin_pathsampling_md_block()
 
 # Run the workflow with an initial state
-# result = workflow.invoke(state)
+# result = workflow.compile().invoke(state)
 ```
 
 ## EnsembleState
@@ -90,7 +90,7 @@ calculation_kwargs = {
     'initial_sampling': {
         # Constraints to apply during Basin MD
         'basin_constraints': [
-            FixAtoms(indices=[0, 1, 2, 3]) # Example: Fix first layer
+            FixAtoms(indices=[0, 1, 2, 3]) # any ase.constraint works here
         ],
         
         # Configuration for NEB Pair Generation
