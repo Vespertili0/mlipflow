@@ -19,6 +19,7 @@ from mlipflow.core.neb_pairing import create_neb_pairs
 from mlipflow.strategies.structure_generators import StructureGenStrategy, MDGen
 from mlipflow.strategies.mlip import MLIPStrategy
 from mlipflow.strategies.dft import QChemStrategy
+from mlipflow.data.selector import ConfigurationSelector
 
 logger = logging.getLogger(__name__)
 #####################################################
@@ -40,6 +41,12 @@ class EnsembleState(TypedDict):
             - 'initial_sampling': kwargs for initial sampling nodes
                 - 'basin_constraints': list of constraints for basin sampling
                 - 'neb_config': kwargs for create_neb_pairs (e.g. rxn_constraints_dict, n_images)
+            - 'selection': kwargs for configuration selection
+                - 'descriptor_key': key for descriptor storage (e.g. 'SOAP')
+                - 'descriptor_string': descriptor string for quippy
+                - 'info_field': info field for histogram selection
+                - 'n_optimal': optimal number of configs (optional)
+                - 'n_max': max configs for optimal N search (optional)
     """
     configs: list[str]
     outfile: NotRequired[list[str]]
@@ -486,3 +493,51 @@ def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
             
     # Pass flattened list of prepared atoms to generation logic
     return _run_structure_generation_logic(state, all_prepared_configs)
+
+
+def run_configuration_selection(state: EnsembleState) -> EnsembleState:
+    """
+    Run two-stage configuration selection.
+    Calculates global descriptors first, then runs selection.
+    """
+    if not state.get('configs'):
+        raise ValueError("No configurations provided in state")
+        
+    selection_kwargs = state.get('calculation_kwargs', {}).get('selection', {})
+    
+    # Required parameters check
+    if 'descriptor_string' not in selection_kwargs:
+        raise ValueError("selection kwargs must contain 'descriptor_string' for descriptor calculation.")
+    
+    # Defaults
+    desc_key = selection_kwargs.get('descriptor_key', 'SOAP')
+    output_prefix = 'selection'
+    seed = selection_kwargs.get('seed', 10)
+    
+    logger.info("Initializing ConfigurationSelector")
+    selector = ConfigurationSelector(inputs=state['configs'], output_prefix=output_prefix, seed=seed)
+    
+    logger.info("Calculating global descriptors")
+    selector.calculate_global_descriptors(
+        descs=[selection_kwargs['descriptor_string']], 
+        key=desc_key
+    )
+    
+    # Extract kwargs for run_two_stage_selection
+    run_kwargs = {k: v for k, v in selection_kwargs.items() if k not in ['descriptor_string', 'descriptor_key', 'seed']}
+    
+    logger.info("Running two-stage selection")
+    selected_configs = selector.run_two_stage_selection(**run_kwargs)
+    
+    # The selector returns ConfigSets/lists of atoms. 
+    # We need to flatten them and make them accessible for the next step.
+    # Ideally, we write them to a file to update state['configs'].
+    # The selector method select_final writes 'final_selection.xyz'.
+    # We can point state['configs'] to that, or to the specific output generated.
+    
+    final_output_file = f'{output_prefix}_final_selection.xyz'
+    # If the file exists, we use it. 
+    # run_two_stage_selection calls select_final which calls write_selected_and_clean... 
+    # wait, select_final writes to f'{self.output_prefix}_final_selection.xyz'.
+    
+    return {**state, 'configs': [final_output_file]}

@@ -68,3 +68,18 @@ def execute_initial_basin_pathsampling_md_block():
     graph.add_edge('mlip_sp', END)
 
     return graph.compile()
+
+
+def execute_configuration_selection_block():
+    """
+    Workflow for Configuration Selection.
+    Calculates descriptors and selects optimal set of configurations.
+    """
+    graph = StateGraph(EnsembleState)
+
+    graph.add_node('select_configs', run_configuration_selection)
+
+    graph.add_edge(START, 'select_configs')
+    graph.add_edge('select_configs', END)
+
+    return graph.compile()
