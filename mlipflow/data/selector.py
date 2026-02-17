@@ -1,12 +1,18 @@
 from typing import List, Optional, Dict, Any, Union, Tuple
 import numpy as np
-import warnings
+import warnings, logging
 import matplotlib.pyplot as plt
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.descriptors import quippy
 from wfl.select.by_descriptor import CUR_conf_global, prep_descs_and_exclude, write_selected_and_clean
 from wfl.select.flat_histogram import biased_select_conf
 from wfl.map import map as wfl_map
+from mlipflow.data import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
+
+
 
 class ConfigurationSelector:
     def __init__(self, inputs: Union[ConfigSet, List[Any]], output_prefix: str, seed: int = 10):
@@ -75,6 +81,7 @@ class ConfigurationSelector:
 
     def _ensure_descriptors_calculated(self):
         if self.global_desc is None:
+            logger.warning("Global descriptors have not been calculated. Call 'calculate_global_descriptors' first.")
             raise RuntimeError("Global descriptors have not been calculated. Call 'calculate_global_descriptors' first.")
 
     def greedy_fps_with_tracking(self, inputs: ConfigSet, outputs: OutputSpec, num: int, 
@@ -296,7 +303,7 @@ class ConfigurationSelector:
             Tuple containing the optimal number of configurations and the list of distances.
         """
         self._ensure_descriptors_calculated()
-        print(f"Running FPS to find optimal N (max {max_n})...")
+        logger.info(f"Running FPS to find optimal N (max {max_n})...")
         fps_out, distances = self.greedy_fps_with_tracking(
             inputs=self.global_desc,
             outputs=OutputSpec(),
@@ -309,7 +316,7 @@ class ConfigurationSelector:
         # Round up to nearest multiple of 20
         n_optimal = round((1.1 * n_optimal) / 20) * 20
         
-        print(f"Optimal N determined: {n_optimal}")
+        logger.info(f"Optimal N determined: {n_optimal}")
 
         return n_optimal, distances
 
@@ -337,7 +344,7 @@ class ConfigurationSelector:
             Tuple of selected configurations (cur_selected, hist_selected, fps_selected).
         """
         self._ensure_descriptors_calculated()
-        print(f"Performing final selection for N={n_optimal}...")
+        logger.info(f"Performing final selection for N={n_optimal}...")
         n_cur = int(0.4 * n_optimal)
         n_hist = int(0.2 * n_optimal)
         n_fps = n_optimal - n_cur - n_hist # Remainder to FPS
@@ -351,11 +358,11 @@ class ConfigurationSelector:
         hist_kwargs = {k: v for k, v in kwargs.items() if k in hist_keys}
 
         # 1. CUR
-        print(f"Selecting {n_cur} via CUR...")
+        logger.info(f"Selecting {n_cur} via CUR...")
         cur_selected = self.select_by_cur(n_cur, **cur_kwargs)
 
         # 2. Hist
-        print(f"Selecting {n_hist} via Histogram...")
+        logger.info(f"Selecting {n_hist} via Histogram...")
         hist_selected = self.select_by_histogram(n_hist, info_field=info_field, **hist_kwargs)
 
         # Combine selected descriptors for FPS exclusion/initialization
@@ -371,7 +378,7 @@ class ConfigurationSelector:
         prev_descs = np.array(prev_descs)
 
         # 3. FPS
-        print(f"Selecting {n_fps} via FPS (with prior knowledge)...")
+        logger.info(f"Selecting {n_fps} via FPS (with prior knowledge)...")
         fps_selected, _ = self.greedy_fps_with_tracking(
             inputs=self.global_desc,
             outputs=OutputSpec(),
@@ -380,7 +387,9 @@ class ConfigurationSelector:
             prev_selected_descs=prev_descs
         )
         OutputSpec(f'{self.output_prefix}_final_selection.xyz').write(ConfigSet([cur_selected, hist_selected, fps_selected]))
+        
         return cur_selected, hist_selected, fps_selected
+
 
     def plot_elbow(self, distances, n_optimal):
         plt.figure(figsize=(6, 4))

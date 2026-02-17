@@ -1,6 +1,16 @@
 import os
 import shutil
 from ase.io import read, write
+import logging
+
+def setup_logging():
+    logging.basicConfig(
+        filename="LOG.log",
+        filemode="a",
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
 
 def get_model_name(mlip_dir: str, fit_idx: int, mlip_prefix: str) -> str:
     """Get the model name based on the MLIP prefix and fit index."""

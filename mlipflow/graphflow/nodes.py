@@ -9,8 +9,7 @@ from ase import Atoms
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.map import map as wfl_map
 
-#from wfl.utils import logging
-from mlipflow.data import clean_up
+from mlipflow.data import clean_up, setup_logging
 from mlipflow.data.processing import update_configset_tag, clean_configset_data
 from mlipflow.data.selection import split_configset_by_force_agreement
 from mlipflow.core.single_point import run_single_point, run_chunked_qe_sp
@@ -21,6 +20,7 @@ from mlipflow.strategies.mlip import MLIPStrategy
 from mlipflow.strategies.dft import QChemStrategy
 from mlipflow.data.selector import ConfigurationSelector
 
+setup_logging()
 logger = logging.getLogger(__name__)
 #####################################################
 
@@ -87,7 +87,10 @@ def _apply_static_constraints(at: Atoms, constraints: list[Any]) -> Atoms:
 
 def merge_configs(state: EnsembleState) -> EnsembleState:
     """Merge original and generated configurations."""
+    logger.info("Merging original and generated configurations")
+
     if not state.get('original_configs'):
+        logger.error("No original configurations provided in state")
         raise ValueError("No original configurations provided in state")
     
     return {**state, 'configs': ConfigSet(state['original_configs']) + ConfigSet(state['configs'])}
@@ -106,7 +109,10 @@ def run_dft_sp(state: EnsembleState) -> EnsembleState:
         KeyError: If required state keys are missing
         ValueError: If configs list is empty
     """
+    logger.info("Running DFT single-point calculations")
+
     if not state.get('configs'):
+        logger.error("No configurations provided in state")
         raise ValueError("No configurations provided in state")
         
     configs = state['configs']
@@ -130,6 +136,7 @@ def run_dft_sp(state: EnsembleState) -> EnsembleState:
         logger.error(f"DFT calculation failed: {str(e)}")
         raise RuntimeError(f"DFT calculation failed: {str(e)}")
     finally:
+        logger.debug("Cleaning up DFT calculation files")
         clean_up()
  
     return {**state, 'configs': outfile, 'outfile': None}
@@ -148,7 +155,10 @@ def run_dft_sp_block(state: EnsembleState) -> EnsembleState:
         KeyError: If required state keys are missing
         ValueError: If configs list is empty
     """
+    logger.info("Running chunked DFT single-point calculations")
+    
     if not state.get('configs'):
+        logger.error("No configurations provided in state")
         raise ValueError("No configurations provided in state")
         
     configs = state['configs']
@@ -194,10 +204,14 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
         KeyError: If required state keys are missing
         ValueError: If configs list is empty
     """
+        logger.info("Running MLIP single-point calculations")
+    
     if not state.get('configs'):
+        logger.error("No configurations provided in state")
         raise ValueError("No configurations provided in state")
     
     if 'mlip_strategy' not in state:
+        logger.error("mlip_strategy not found in state")
         raise KeyError("mlip_strategy not found in state")
 
     mlip = state['mlip_strategy'] 
@@ -229,6 +243,7 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
         logger.error(f"MLIP calculation failed: {str(e)}")
         raise RuntimeError(f"MLIP calculation failed: {str(e)}")
     finally:
+        logger.debug("Cleaning up MLIP calculation files")
         clean_up()
  
     return {**state, 'configs': outfile, 'outfile': None}
@@ -275,10 +290,14 @@ def _run_structure_generation_logic(
     Internal helper to run structure generation logic on specific configs.
     configs can be list[str], ConfigSet, or list[Atoms].
     """
+    logger.info("Running structure generation logic")
+    
     if 'mlip_strategy' not in state:
+        logger.error("mlip_strategy not found in state")
         raise KeyError("mlip_strategy not found in state")
     
     if 'structure_gen_strategy' not in state:
+        logger.error("structure_gen_strategy not found in state")
         raise KeyError("structure_gen_strategy not found in state")
     
     # Get MLIP kwargs for structure generation
@@ -358,6 +377,10 @@ def _run_structure_generation_logic(
 
 
     try:
+        logger.info(f"Generating new structures using {structure_generator.calc_prefix} method")
+        logger.debug(f"MLIP kwargs: {mlip_kwargs}")
+        logger.debug(f"Structure generation parameters: {sg_params}")
+        
         structure_generator.generate_new_structures(
             in_file=configs,
             out_file=output_arg,
@@ -378,6 +401,7 @@ def _run_structure_generation_logic(
         logger.error(f"Structure generation failed: {str(e)}")
         raise RuntimeError(f"Structure generation failed: {str(e)}")
     finally:
+        logger.debug("Cleaning up structure generation files")
         clean_up()
     
     return {**state, 'configs': outfile, 'outfile': None}
@@ -397,7 +421,10 @@ def run_apply_basin_constraints(state: EnsembleState) -> EnsembleState:
     Apply basin constraints and run structure generation immediately.
     This avoids writing intermediate files which would lose constraint information.
     """
+    logger.info("Running Basin-MD with applied constraints")
+    
     if not state.get('configs'): 
+        logger.error("No configurations provided in state")
         raise ValueError("No configurations provided in state")
         
     sampling_kwargs = state.get('calculation_kwargs', {}).get('initial_sampling', {})
@@ -432,7 +459,10 @@ def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
     """
     Generate NEB pairs and run structure generation immediately.
     """
+    logger.info("Generating NEB pairs and running structure generation")
+    
     if not state.get('configs'):
+        logger.error("No configurations provided in state")
         raise ValueError("No configurations provided in state")
         
     sampling_kwargs = state.get('calculation_kwargs', {}).get('initial_sampling', {})
@@ -488,7 +518,10 @@ def run_configuration_selection(state: EnsembleState) -> EnsembleState:
     Run two-stage configuration selection.
     Calculates global descriptors first, then runs selection.
     """
+    logger.info("Running configuration selection")
+    
     if not state.get('configs'):
+        logger.error("No configurations provided in state")
         raise ValueError("No configurations provided in state")
         
     selection_kwargs = state.get('calculation_kwargs', {}).get('selection', {})
