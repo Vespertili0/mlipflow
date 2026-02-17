@@ -1,15 +1,18 @@
-import os
+import os, logging 
 from abc import ABC, abstractmethod
 import numpy as np
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.autoparallelize import AutoparaInfo
-
+from mlipflow.data import setup_logging
 #from wfl.generate.md import md as run_md
 from mlipflow.core.md_nvt import md as run_md
 #from wfl.generate.optimize import optimize as optimize
 from mlipflow.core.relaxation_fire import optimize
 from mlipflow.adapters.wflio import ForceCheck
 from wfl.generate.neb import NEB as run_neb
+
+setup_logging()
+logger = logging.getLogger(__name__)
 #####################################################################
 
 # Base Strategy class for structure generator approach

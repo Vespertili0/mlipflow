@@ -92,8 +92,12 @@ def merge_configs(state: EnsembleState) -> EnsembleState:
     if not state.get('original_configs'):
         logger.error("No original configurations provided in state")
         raise ValueError("No original configurations provided in state")
-    
-    return {**state, 'configs': ConfigSet(state['original_configs']) + ConfigSet(state['configs'])}
+
+    merged = ConfigSet(state['original_configs']) + ConfigSet(state['configs'])
+    logger.debug(f"...{len(merged)} configurations")
+    OutputSpec('merged.xyz').write(merged)
+
+    return {**state, 'configs': ['merged.xyz']}
 
 
 def run_dft_sp(state: EnsembleState) -> EnsembleState:
@@ -204,7 +208,7 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
         KeyError: If required state keys are missing
         ValueError: If configs list is empty
     """
-        logger.info("Running MLIP single-point calculations")
+    logger.info("Running MLIP-SP calculations")
     
     if not state.get('configs'):
         logger.error("No configurations provided in state")
@@ -290,7 +294,7 @@ def _run_structure_generation_logic(
     Internal helper to run structure generation logic on specific configs.
     configs can be list[str], ConfigSet, or list[Atoms].
     """
-    logger.info("Running structure generation logic")
+    logger.info("...Running structure generation logic")
     
     if 'mlip_strategy' not in state:
         logger.error("mlip_strategy not found in state")
@@ -377,16 +381,17 @@ def _run_structure_generation_logic(
 
 
     try:
-        logger.info(f"Generating new structures using {structure_generator.calc_prefix} method")
-        logger.debug(f"MLIP kwargs: {mlip_kwargs}")
-        logger.debug(f"Structure generation parameters: {sg_params}")
+        logger.info(f"Generating new structures using {structure_generator.__class__.__name__}")
+        logger.debug(f"MLIP run settings: {mlip_kwargs}")
+        logger.debug(f"StructureGen parameters: {sg_params}")
         
         structure_generator.generate_new_structures(
             in_file=configs,
             out_file=output_arg,
             calculator=mlip.get_calculator(
                 job_name='mSG_',
-                dispersion=mlip_kwargs.get('dispersion', True)
+            #    dispersion=mlip_kwargs.get('dispersion', True)
+                **mlip_kwargs
                 ),
             remote_info=mlip.remote_info
         )
