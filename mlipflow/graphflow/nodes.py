@@ -39,8 +39,12 @@ class EnsembleState(TypedDict):
             - 'mlip_sp': kwargs for MLIP single point calculations (e.g. dispersion)
             - 'mlip_gen': kwargs for MLIP structure generation (e.g. dispersion)
             - 'initial_sampling': kwargs for initial sampling nodes
-                - 'basin_constraints': list of constraints for basin sampling
-                - 'neb_config': kwargs for create_neb_pairs (e.g. rxn_constraints_dict, n_images)
+                - 'basin_constraints': list of constraints for basin sampling, e.g. FixAtoms
+                - 'basin__mlip_gen': kwargs for basin MLIP structure generation (e.g. dispersion)
+                - 'basin__structure_gen_params': kwargs for MD structure generation (e.g. rxn_constraints_dict, n_images)
+                - 'neb_config': dict of neb configuration parameters
+                - 'neb__mlip_gen': kwargs for neb MLIP structure generation (e.g. dispersion)
+                - 'neb__structure_gen_params': kwargs for MD structure generation (e.g. rxn_constraints_dict, n_images)
             - 'selection': kwargs for configuration selection
                 - 'descriptor_key': key for descriptor storage (e.g. 'SOAP')
                 - 'descriptor_string': descriptor string for quippy
@@ -125,6 +129,8 @@ def run_dft_sp(state: EnsembleState) -> EnsembleState:
     except Exception as e:
         logger.error(f"DFT calculation failed: {str(e)}")
         raise RuntimeError(f"DFT calculation failed: {str(e)}")
+    finally:
+        clean_up()
  
     return {**state, 'configs': outfile, 'outfile': None}
 
@@ -259,7 +265,12 @@ def run_mace_fit(state: EnsembleState) -> EnsembleState:
     return {**state, 'outfile': None}
 
 
-def _run_structure_generation_logic(state: EnsembleState, configs: Any, mlip_gen_kwargs_override: Optional[dict] = None) -> EnsembleState:
+def _run_structure_generation_logic(
+    state: EnsembleState, 
+    configs: Any,
+    mlip_gen_kwargs_override: Optional[dict] = None,
+    structure_gen_params_override: Optional[dict] = None
+) -> EnsembleState:
     """
     Internal helper to run structure generation logic on specific configs.
     configs can be list[str], ConfigSet, or list[Atoms].
@@ -270,15 +281,11 @@ def _run_structure_generation_logic(state: EnsembleState, configs: Any, mlip_gen
     if 'structure_gen_strategy' not in state:
         raise KeyError("structure_gen_strategy not found in state")
     
-    mlip = state['mlip_strategy']
-    structure_generator = state['structure_gen_strategy']
-    
     # Get MLIP kwargs for structure generation
     # Allow override for specific steps (e.g. basin vs neb)
     mlip_kwargs = state.get('calculation_kwargs', {}).get('mlip_gen', {})
     if mlip_gen_kwargs_override:
         mlip_kwargs = {**mlip_kwargs, **mlip_gen_kwargs_override}
-    
     
     # Determine the property prefix based on the strategy type
     prefix_map = {
@@ -287,6 +294,13 @@ def _run_structure_generation_logic(state: EnsembleState, configs: Any, mlip_gen
         'neb': 'neb'
     }
     
+    mlip = state['mlip_strategy']
+    structure_generator = state['structure_gen_strategy']
+    
+    if structure_gen_params_override:
+        sg_params = {**structure_generator.params, **structure_gen_params_override}
+
+
     calc_type = getattr(structure_generator, 'calc_prefix', 'opt')
     op_name = prefix_map.get(calc_type, 'optimize')
     
@@ -402,10 +416,16 @@ def run_apply_basin_constraints(state: EnsembleState) -> EnsembleState:
     )
     
     # Check for override kwargs
-    basin_mlip_gen = sampling_kwargs.get('basin_mlip_gen', None)
+    basin_mlip_gen = sampling_kwargs.get('basin__mlip_gen', None)
+    basin_structure_gen_params = sampling_kwargs.get('basin__structure_gen_params', None)
 
     # Pass directly to generation logic
-    return _run_structure_generation_logic(state, constrained_inputs, mlip_gen_kwargs_override=basin_mlip_gen)
+    return _run_structure_generation_logic(
+        state=state,
+        configs=constrained_inputs,
+        mlip_gen_kwargs_override=basin_mlip_gen,
+        structure_gen_params_override=basin_structure_gen_params
+    )
 
 
 def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
@@ -448,10 +468,16 @@ def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
             os.remove(cleaned_file)
             
     # Check for override kwargs
-    neb_mlip_gen = sampling_kwargs.get('neb_mlip_gen', None)
+    neb_mlip_gen = sampling_kwargs.get('neb__mlip_gen', None)
+    neb_structure_gen_params = sampling_kwargs.get('neb__structure_gen_params', None)
     
     # Pass flattened list of prepared atoms to generation logic
-    gen_result = _run_structure_generation_logic(state, all_prepared_configs, mlip_gen_kwargs_override=neb_mlip_gen)
+    gen_result = _run_structure_generation_logic(
+        state=state,
+        configs=all_prepared_configs,
+        mlip_gen_kwargs_override=neb_mlip_gen,
+        structure_gen_params_override=neb_structure_gen_params
+    )
 
     # Update state: configs now contains ALL generated structures (Basin + NEB) so MLIP SP runs on everything
     return {**state, 'configs': gen_result['configs'], 'original_configs': original_configs}
