@@ -94,7 +94,7 @@ def merge_configs(state: EnsembleState) -> EnsembleState:
         raise ValueError("No original configurations provided in state")
 
     merged = ConfigSet(state['original_configs']) + ConfigSet(state['configs'])
-    logger.debug(f"...{len(merged)} configurations")
+    logger.debug(f"...{len(list(merged))} configurations")
     OutputSpec('merged.xyz').write(merged)
 
     return {**state, 'configs': ['merged.xyz']}
@@ -390,7 +390,6 @@ def _run_structure_generation_logic(
             out_file=output_arg,
             calculator=mlip.get_calculator(
                 job_name='mSG_',
-            #    dispersion=mlip_kwargs.get('dispersion', True)
                 **mlip_kwargs
                 ),
             remote_info=mlip.remote_info
@@ -464,7 +463,7 @@ def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
     """
     Generate NEB pairs and run structure generation immediately.
     """
-    logger.info("Generating NEB pairs and running structure generation")
+    logger.info("Generating NEB pairs for structure generation")
     
     if not state.get('configs'):
         logger.error("No configurations provided in state")
@@ -474,9 +473,8 @@ def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
     neb_config = sampling_kwargs.get('neb_config', {})
     
     if not neb_config or 'rxn_constraints_dict' not in neb_config:
+        logger.error("neb_config with 'rxn_constraints_dict' is required for NEB pair generation.")
         raise ValueError("neb_config with 'rxn_constraints_dict' is required for NEB pair generation.")
-        
-    logger.info("Generating NEB pairs and running generation")
     
     # Capture the input configs (from Basin MD) to merge later
     original_configs = state['configs']
