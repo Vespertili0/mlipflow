@@ -1,15 +1,18 @@
-import os
+import os, logging 
 from abc import ABC, abstractmethod
 import numpy as np
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.autoparallelize import AutoparaInfo
-
+from mlipflow.data import setup_logging
 #from wfl.generate.md import md as run_md
 from mlipflow.core.md_nvt import md as run_md
 #from wfl.generate.optimize import optimize as optimize
 from mlipflow.core.relaxation_fire import optimize
 from mlipflow.adapters.wflio import ForceCheck
 from wfl.generate.neb import NEB as run_neb
+
+setup_logging()
+logger = logging.getLogger(__name__)
 #####################################################################
 
 # Base Strategy class for structure generator approach
@@ -17,6 +20,7 @@ class StructureGenStrategy(ABC):
     def __init__(self) -> None:
         super().__init__()
         self.calc_prefix = 'base'
+        self.params = {}
 
     @abstractmethod
     def generate_new_structures(self):
@@ -26,11 +30,11 @@ class StructureGenStrategy(ABC):
 class MDGen(StructureGenStrategy):
     def __init__(self, uncertainty_thrs, 
                  n_failed_steps=10, 
-                 md_params={'steps': 500, 'dt': 1, 'temperature': 300., 'traj_step_interval': 1}) -> None:
+                 params={'steps': 500, 'dt': 1, 'temperature': 300., 'traj_step_interval': 1}) -> None:
         super().__init__()
         self.uncertainty_thrs = uncertainty_thrs
         self.n_failed_steps = n_failed_steps
-        self.md_params = md_params
+        self.params = params
         self.calc_prefix = 'md'
     
     def generate_new_structures(self, in_file, out_file, calculator,
@@ -62,7 +66,7 @@ class MDGen(StructureGenStrategy):
                 rng=rng, 
                 traj_select_after_func=traj_select_after_func, 
                 abort_check=abort_check, 
-                **self.md_params
+                **self.params
             )
         
         elif remote_info:
@@ -78,15 +82,15 @@ class MDGen(StructureGenStrategy):
                     num_inputs_per_python_subprocess=1,
                     num_python_subprocesses=1
                 ),
-                **self.md_params
+                **self.params
             )
 
 # Strategy using optimisation as generator
 class OPTGen(StructureGenStrategy):
-    def __init__(self, traj_subselect="last_converged", opt_params={'fmax': 0.1, 'steps': 250}) -> None:
+    def __init__(self, traj_subselect="last_converged", params={'fmax': 0.1, 'steps': 250}) -> None:
         super().__init__()
         self.traj_subselect = traj_subselect
-        self.opt_params = opt_params
+        self.params = params
         self.calc_prefix = 'opt'
 
     def generate_new_structures(self, in_file, out_file, calculator, remote_info=None) -> None:
@@ -118,7 +122,7 @@ class OPTGen(StructureGenStrategy):
                 outputs=out_config, 
                 calculator=calculator, 
                 traj_subselect=self.traj_subselect,
-                **self.opt_params
+                **self.params
             )
 
         elif remote_info:
@@ -132,15 +136,15 @@ class OPTGen(StructureGenStrategy):
                     num_inputs_per_python_subprocess=1,
                     num_python_subprocesses=1
                 ),
-                **self.opt_params
+                **self.params
             )
 
 # Strategy using CI-NEB as generator
 class NEBGen(StructureGenStrategy):
-    def __init__(self, traj_subselect="last_converged", neb_params={'fmax': 0.1, 'steps': 1000}) -> None:
+    def __init__(self, traj_subselect="last_converged", params={'fmax': 0.1, 'steps': 1000}) -> None:
         super().__init__()
         self.traj_subselect = traj_subselect
-        self.neb_params = neb_params
+        self.params = params
         self.calc_prefix = 'neb'
 
     def generate_new_structures(self, in_file, out_file, calculator, remote_info=None) -> None:
@@ -168,7 +172,7 @@ class NEBGen(StructureGenStrategy):
                 outputs=out_config,
                 calculator=calculator,
                 traj_subselect=self.traj_subselect,
-                **self.neb_params
+                **self.params
             )
 
         elif remote_info:
@@ -182,5 +186,5 @@ class NEBGen(StructureGenStrategy):
                     num_inputs_per_python_subprocess=1,
                     num_python_subprocesses=1
                 ),
-                **self.neb_params
+                **self.params
             )

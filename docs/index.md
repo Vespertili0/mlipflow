@@ -20,4 +20,5 @@ Traditional heterogeneous catalysis research often faces a trade-off between the
 
 *   **[Installation](install.md)**: Get started with installing `mlipflow` and its dependencies.
 *   **[Overview](overview.md)**: Understand the core concepts, including the graph-based workflow and available strategies.
+*   **[Workflows](workflows.md)**: Detailed documentation on pre-defined workflows and state configuration.
 *   **[NEB Pairing](neb_pairing.md)**: A detailed guide on generating NEB pathways using the `neb_pairing` module.

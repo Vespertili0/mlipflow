@@ -40,7 +40,7 @@ def test_qe_calculator_init(tmp_path):
     pseudo_dir = tmp_path / "pseudo"
     pseudo_dir.mkdir()
 
-    strategy = QECalculator(basic_params=str(params_file), pseudo_dir=str(pseudo_dir))
+    strategy = QECalculator(basic_params=str(params_file), pseudopots={}, pseudo_dir=str(pseudo_dir))
     assert strategy.basic_params == str(params_file)
     assert strategy.pseudo_dir == str(pseudo_dir)
     assert strategy.qe_prefix == 'DFT_'
@@ -72,7 +72,7 @@ def test_qe_calculator_get_calculator(mock_prepare_remote, tmp_path):
     pseudo_dir = tmp_path / "pseudo"
     pseudo_dir.mkdir()
 
-    strategy = QECalculator(basic_params=str(params_file), pseudo_dir=str(pseudo_dir))
+    strategy = QECalculator(basic_params=str(params_file), pseudopots={}, pseudo_dir=str(pseudo_dir))
     mock_prepare_remote.return_value = MagicMock()
 
     # Test scf
@@ -117,7 +117,7 @@ def test_qe_calculator_get_calculator_relax(mock_prepare_remote, tmp_path):
     pseudo_dir = tmp_path / "pseudo"
     pseudo_dir.mkdir()
 
-    strategy = QECalculator(basic_params=str(params_file), pseudo_dir=str(pseudo_dir))
+    strategy = QECalculator(basic_params=str(params_file), pseudopots={}, pseudo_dir=str(pseudo_dir))
 
     # Test relax
     strategy.get_calculator(job_name="test_job_relax", calc_type="relax")

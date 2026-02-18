@@ -1,4 +1,4 @@
-import random
+import random, logging
 import numpy as np
 from ase.io import read
 from ase.mep import NEB
@@ -6,7 +6,10 @@ from ase import Atoms
 from quippy.descriptors import Descriptor
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.map import map as wfl_map
+from mlipflow.data import setup_logging
 
+setup_logging()
+logger = logging.getLogger(__name__)
 
 class NEBPairFinder:
     """Generates NEB pathways from a pool of structures using random or similarity-based selection.
@@ -27,7 +30,7 @@ class NEBPairFinder:
         for atoms in self.structures:
             species = atoms.info.get('species')
             counts[species] = counts.get(species, 0) + 1
-        print(f"Found structures: {counts}")
+        logger.info(f"Found structures: {counts}")
 
     def generate_pathway(self, initial_image: Atoms, final_image: Atoms, n_images=5, method='idpp'):
         """Generates a NEB pathway between two images.
@@ -87,7 +90,7 @@ class NEBPairFinder:
                     seen_pairs.add(pair_id)
                     break 
             else:
-                print("Warning: Could not find unique, compatible pair after 100 attempts.")
+                logger.warning("Could not find unique, compatible pair after 100 attempts.")
                 break
             pathway = self.generate_pathway(start_image, end_image, n_images, method)
             generated_pathways.append(pathway)
@@ -145,7 +148,7 @@ class NEBPairFinder:
             count += 1
             
         if count < n_pathways:
-            print(f"Warning: Only generated {count} pathways out of requested {n_pathways}.")
+            logger.warning(f"Only generated {count} pathways out of requested {n_pathways}.")
 
         return generated_pathways
             

@@ -1,9 +1,12 @@
+import logging
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.calculators.generic import calculate as generic_calc
 from wfl.autoparallelize import AutoparaInfo
 from ase.io import read
-from mlipflow.data import clean_up, merge_clean_chunks
+from mlipflow.data import clean_up, merge_clean_chunks, setup_logging
 
+setup_logging()
+logger = logging.getLogger(__name__)
 
 def run_single_point(
         in_file: str, out_file: str, output_prefix: str, 
@@ -69,6 +72,8 @@ def run_chunked_qe_sp(
     """
     chunk_list = _chunk_indices(in_file, chunk_size=chunk_size)
     chunk_files = [f'tmp_{n}.xyz' for n in range(len(chunk_list))]
+
+    logger.info(f"Preparing {len(chunk_list)} batches of {chunk_size} for DFT-SP")
     
     # run single point calculations on each chunk
     for n, chunk in enumerate(chunk_list):
@@ -90,6 +95,7 @@ def run_chunked_qe_sp(
         clean_up()
     
     # merge all chunks into one file
+    logger.info("Merging chunks into single file")
     merge_clean_chunks(
         in_files=chunk_files,
         out_file=out_file,
@@ -98,6 +104,7 @@ def run_chunked_qe_sp(
     
     # remove the temporary files
     clean_up(key='tmp_')
+    logger.info("Chunked DFT-SP calculations completed successfully")
 
 
 def _chunk_indices(in_file: str, chunk_size: int = 50) -> list[str]:
