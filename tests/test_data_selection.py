@@ -1,0 +1,74 @@
+import os
+import pytest
+import numpy as np
+from ase import Atoms
+from ase.io import write, read
+from mlipflow.data.selection import split_configset_by_force_agreement
+
+def test_split_configset_by_force_agreement(tmp_path):
+    """Test split_configset_by_force_agreement."""
+    # Create 100 dummy atoms
+    atoms_list = []
+    n_total = 100
+    for i in range(n_total):
+        at = Atoms('H', positions=[[0, 0, 0]])
+        # DFT forces: all zeros
+        at.arrays['DFT_forces'] = np.array([[0.0, 0.0, 0.0]])
+        # MACE forces: varied error.
+        # For i < 80, error is small (0.1)
+        # For i >= 80, error is large (10.0)
+        # So top 20% should be the ones with index >= 80.
+        error = 10.0 if i >= 80 else 0.1
+        at.arrays['MACE_forces'] = np.array([[error, 0.0, 0.0]])
+        at.info['index'] = i
+        atoms_list.append(at)
+
+    in_file = tmp_path / "test_selection.xyz"
+    # The function writes to f'{suffix}_{out_file}'
+    # If out_file is absolute path /tmp/.../split.xyz
+    # It writes to train_/tmp/.../split.xyz which is invalid path.
+    # So out_file should be a filename, and we should control CWD or pass just filename and expect it in CWD.
+
+    # Let's inspect the code again.
+    # write(f'{suffix}_{out_file}', atoms)
+    # If out_file is 'split.xyz', it writes 'train_split.xyz'.
+
+    # I should change directory to tmp_path to make it safe.
+    cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        write("test_selection.xyz", atoms_list)
+
+        split_configset_by_force_agreement(
+            in_file="test_selection.xyz",
+            out_file="split.xyz",
+            pair_tuple=('DFT_', 'MACE_'),
+            main_suffix='train',
+            side_suffix='test'
+        )
+
+        train_file = "train_split.xyz"
+        test_file = "test_split.xyz"
+
+        assert os.path.exists(train_file)
+        assert os.path.exists(test_file)
+
+        train_atoms = read(train_file, ':')
+        test_atoms = read(test_file, ':')
+
+        # Logic:
+        # Top 20% (highest MAE) -> 20 atoms (indices 80-99). These MUST be in train.
+        # From bottom 80% (indices 0-79), select 60% of TOTAL (60 atoms).
+        # Total train size = 20 + 60 = 80 atoms.
+        # Total test size = 20 atoms.
+
+        assert len(train_atoms) == 80
+        assert len(test_atoms) == 20
+
+        # Verify that all top 20% are in train
+        train_indices = [at.info['index'] for at in train_atoms]
+        for i in range(80, 100):
+            assert i in train_indices
+
+    finally:
+        os.chdir(cwd)

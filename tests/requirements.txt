@@ -1,0 +1,5 @@
+pytest==7.4.2
+pytest-cov==4.1.0
+git+https://github.com/libAtoms/workflow
+mace-torch==0.3.12
+quippy-ase>0.8
