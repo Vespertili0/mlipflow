@@ -53,7 +53,7 @@ def test_neb_pairing_and_opt(test_data_setup):
         
         # Run OPTGen on resulting structures
         # Use traj_subselect=None to keep full trajectory even if unconverged
-        opt_gen = OPTGen(opt_params=opt_params, traj_subselect=None)
+        opt_gen = OPTGen(params=opt_params, traj_subselect=None)
         
         # Iterate over results (ConfigSets)
         for i, config_set in enumerate(results):
