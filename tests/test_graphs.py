@@ -4,7 +4,6 @@ import pytest
 from unittest.mock import MagicMock
 from ase.io import read
 from ase.constraints import FixAtoms
-from ase.calculators.emt import EMT
 from mlipflow.graphflow.nodes import EnsembleState
 from mlipflow.graphflow.graphs import execute_initial_basin_pathsampling_md_block
 from mlipflow.strategies.mlip import MACEModel
@@ -14,7 +13,7 @@ from mlipflow.strategies.dft import EMTCalc
 def test_execute_initial_basin_pathsampling_md_block(tmp_path):
     """
     Test execute_initial_basin_pathsampling_md_block with MACE and MDGen.
-    We mock MACE calculator with EMT to ensure compatibility.
+    We mock MACE calculator with EMTCalc to ensure compatibility.
     """
     # Setup paths
     test_dir = os.path.dirname(os.path.abspath(__file__))
@@ -42,13 +41,14 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
         # We return (EMT, [], kwargs) so wfl uses EMT(**kwargs)
         mlip_strategy.remote_info = None
         # Use generic parameters for EMT
-        mlip_strategy.get_calculator = MagicMock(return_value=(EMT, [], {}))
+        # Use EMTCalc().get_calculator for the mock side_effect to match the return signature
+        mlip_strategy.get_calculator = MagicMock(side_effect=EMTCalc().get_calculator)
 
         # MDGen with minimal steps
         structure_gen_strategy = MDGen(
             uncertainty_thrs=float('inf'), # Infinite threshold to ensure MD runs even with bad random structures
             n_failed_steps=2,
-            md_params={'steps': 5, 'dt': 1.0, 'temperature': 300.0, 'traj_step_interval': 1}
+            params={'steps': 5, 'dt': 1.0, 'temperature': 300.0, 'traj_step_interval': 1}
         )
 
         # QChem strategy (dummy)
@@ -75,7 +75,12 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
                 }
             },
             'mlip_gen': {'dispersion': False}, # Disable dispersion to avoid dftd3 dependency issues if any
-            'mlip_sp': {'dispersion': False}
+            'mlip_sp': {'dispersion': False},
+            'selection': {
+                'descriptor_string': 'soap n_species=4 species_Z={1 6 8 29} l_max=6 n_max=8 cutoff=3.5 atom_sigma=0.5 zeta=6',
+                'info_field': 'MACE_energy',
+                'n_optimal': 5
+            }
         }
 
         state = EnsembleState(
@@ -98,7 +103,7 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
         # Check files
         for f in result['configs']:
             assert os.path.exists(f)
-            assert f.endswith('.mace.xyz')
+            assert f.endswith('final_selection.xyz')
 
             atoms = read(f, ':')
             assert len(atoms) > 0

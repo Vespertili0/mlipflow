@@ -320,8 +320,10 @@ def _run_structure_generation_logic(
     mlip = state['mlip_strategy']
     structure_generator = state['structure_gen_strategy']
     
+    # Set default structure generation parameters
+    sg_params = structure_generator.params.copy()
     if structure_gen_params_override:
-        sg_params = {**structure_generator.params, **structure_gen_params_override}
+        sg_params.update(structure_gen_params_override)
 
 
     calc_type = getattr(structure_generator, 'calc_prefix', 'opt')
