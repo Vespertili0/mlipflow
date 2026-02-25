@@ -85,6 +85,13 @@ def _apply_static_constraints(at: Atoms, constraints: list[Any]) -> Atoms:
     return at
 
 
+def _log_config_counts(configs: ConfigSet, msg: str = "") -> None:
+    """Log the number of configurations in a ConfigSet."""
+    logger.debug(f"...{len(list(configs))} configurations {msg}")
+    
+    return None
+
+
 def merge_configs(state: EnsembleState) -> EnsembleState:
     """Merge original and generated configurations."""
     logger.info("Merging original and generated configurations")
@@ -94,7 +101,7 @@ def merge_configs(state: EnsembleState) -> EnsembleState:
         raise ValueError("No original configurations provided in state")
 
     merged = ConfigSet(state['original_configs']) + ConfigSet(state['configs'])
-    logger.debug(f"...{len(list(merged))} configurations")
+    _log_config_counts(merged, msg="after merging")
     OutputSpec('merged.xyz').write(merged)
 
     return {**state, 'configs': ['merged.xyz']}
@@ -142,6 +149,7 @@ def run_dft_sp(state: EnsembleState) -> EnsembleState:
     finally:
         logger.debug("Cleaning up DFT calculation files")
         clean_up()
+        _log_config_counts(ConfigSet(outfile), msg="after DFT-SP")
  
     return {**state, 'configs': outfile, 'outfile': None}
 
@@ -193,6 +201,8 @@ def run_dft_sp_block(state: EnsembleState) -> EnsembleState:
     except Exception as e:
         logger.error(f"DFT calculation failed: {str(e)}")
         raise RuntimeError(f"DFT calculation failed: {str(e)}")
+    finally:
+        _log_config_counts(ConfigSet(outfile), msg="after chunked DFT-SP")
  
     return {**state, 'configs': outfile, 'outfile': None}
 
@@ -249,6 +259,7 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
     finally:
         logger.debug("Cleaning up MLIP calculation files")
         clean_up()
+        _log_config_counts(ConfigSet(outfile), msg="after MLIP-SP")
  
     return {**state, 'configs': outfile, 'outfile': None}
 
@@ -323,8 +334,13 @@ def _run_structure_generation_logic(
     # Set default structure generation parameters
     sg_params = structure_generator.params.copy()
     if structure_gen_params_override:
+<<<<<<< HEAD
         sg_params.update(structure_gen_params_override)
 
+=======
+        sg_params = {**structure_generator.params, **structure_gen_params_override}
+        structure_generator.params = sg_params
+>>>>>>> 9e80aef (fix: configuration counts after key operations in the graphflow module, updating params of structure_generator)
 
     calc_type = getattr(structure_generator, 'calc_prefix', 'opt')
     op_name = prefix_map.get(calc_type, 'optimize')
@@ -409,6 +425,7 @@ def _run_structure_generation_logic(
     finally:
         logger.debug("Cleaning up structure generation files")
         clean_up()
+        _log_config_counts(ConfigSet(outfile), msg="after structure generation")
     
     return {**state, 'configs': outfile, 'outfile': None}
 
@@ -565,6 +582,7 @@ def run_configuration_selection(state: EnsembleState) -> EnsembleState:
     # If the file exists, we use it. 
     # run_two_stage_selection calls select_final which calls write_selected_and_clean... 
     # wait, select_final writes to f'{self.output_prefix}_final_selection.xyz'.
+    _log_config_counts(ConfigSet(final_output_file), msg="after selection")
     
     return {**state, 'configs': [final_output_file]}
 
