@@ -334,13 +334,8 @@ def _run_structure_generation_logic(
     # Set default structure generation parameters
     sg_params = structure_generator.params.copy()
     if structure_gen_params_override:
-<<<<<<< HEAD
-        sg_params.update(structure_gen_params_override)
-
-=======
         sg_params = {**structure_generator.params, **structure_gen_params_override}
         structure_generator.params = sg_params
->>>>>>> 9e80aef (fix: configuration counts after key operations in the graphflow module, updating params of structure_generator)
 
     calc_type = getattr(structure_generator, 'calc_prefix', 'opt')
     op_name = prefix_map.get(calc_type, 'optimize')
