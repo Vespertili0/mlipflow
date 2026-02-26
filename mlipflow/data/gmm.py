@@ -1,7 +1,12 @@
-import math
+import math, logging
 import torch
 from typing import Tuple, List, Optional
 from mlipflow.utils import find_robust_elbow
+from mlipflow.utils.logging import setup_logging
+
+setup_logging()
+logger = logging.getLogger(__name__)
+
 
 class TorchGMM:
     """
@@ -50,6 +55,7 @@ class TorchGMM:
         # Return log probabilities. unsqueeze(0) broadcasts log_norm across N
         return -0.5 * quadrance + log_norm.unsqueeze(0)
 
+
     def fit(self, x: torch.Tensor, iters: int = 100):
         """
         Fits the GMM parameters (mu, sigma, pi) to the data using Expectation-Maximization (EM).
@@ -95,7 +101,9 @@ class TorchGMM:
         """
         x = x.to(self.dtype)
         log_probs = self._gaussian_log_prob(x)
+        
         return torch.logsumexp(log_probs + torch.log(self.pi), dim=1)
+
 
     def calculate_bic(self, x: torch.Tensor) -> float:
         """
@@ -114,8 +122,8 @@ class TorchGMM:
         
         log_likelihood = self.score(x).sum()
         bic = num_params * math.log(N) - 2 * log_likelihood
-        return bic.item()
 
+        return bic.item()
 
 
 def find_best_gmm(X_reduced: torch.Tensor, max_k: int = 30, n_init: int = 5, device: str = 'cuda') -> Tuple[TorchGMM, List[Tuple[int, float]]]:
@@ -171,7 +179,8 @@ def find_best_gmm(X_reduced: torch.Tensor, max_k: int = 30, n_init: int = 5, dev
     # Retrieve the best GMM at the elbow point
     best_overall_gmm = gmm_history[optimal_k_idx]
             
-    return best_overall_gmm, bic_history
+    return best_overall_gmm
+
 
 def evaluate_pool_uncertainty(best_gmm, pca_V, pca_mean, new_X):
     """
@@ -222,3 +231,89 @@ def evaluate_pool_uncertainty(best_gmm, pca_V, pca_mean, new_X):
     structure_uncertainty = -structure_min_ll
         
     return structure_uncertainty
+
+
+def get_certainty_threshold(train_uncertainty_scores, certainty_percentile=0.80):
+    """
+    Calculates the uncertainty threshold corresponding to a specific certainty level
+    based on the training data distribution.
+    
+    Args:
+        train_uncertainty_scores (torch.Tensor): 1D tensor of uncertainty scores for the TRAINING set.
+        certainty_percentile (float): The target certainty level (e.g., 0.80 for 80%).
+        
+    Returns:
+        float: The threshold score. Structures with a score HIGHER than this are below the certainty percentile.
+    """
+    # Sort training scores in ascending order (most certain to least certain)
+    sorted_train_scores, _ = torch.sort(train_uncertainty_scores)
+    
+    # Find the index that corresponds to the percentile
+    threshold_idx = int(certainty_percentile * len(sorted_train_scores))
+    
+    # Ensure index is within bounds
+    threshold_idx = min(threshold_idx, len(sorted_train_scores) - 1)
+    
+    threshold_value = sorted_train_scores[threshold_idx].item()
+    return threshold_value
+
+
+def select_uncertain_structures(pool_uncertainty_scores, threshold):
+    """
+    Selects indices of structures from the pool that have an uncertainty score 
+    higher than the defined threshold (i.e., they are 'below the certainty limit').
+    
+    Args:
+        pool_uncertainty_scores (torch.Tensor): 1D tensor of scores for the NEW pool.
+        threshold (float): The threshold calculated from get_certainty_threshold.
+        
+    Returns:
+        torch.Tensor: 1D tensor containing the indices of the selected structures.
+    """
+    # Find all indices where the pool score is strictly greater than the threshold
+    # (Greater score = higher uncertainty = lower certainty)
+    selected_indices = torch.where(pool_uncertainty_scores > threshold)[0]
+    
+    return selected_indices
+
+
+def torch_pca_dynamic(X, threshold=0.95):
+    # 1. Center the data
+    mean = torch.mean(X, dim=0)
+    X_centered = X - mean
+    
+    # 2. SVD
+    U, S, Vh = torch.linalg.svd(X_centered, full_matrices=False)
+    
+    # 3. Variance Calculation
+    explained_variance = (S**2) / (X.shape[0] - 1)
+    total_var = torch.sum(explained_variance)
+    
+    # Handle edge case: Data has no variance
+    if total_var < 1e-10:
+        print("Warning: Data has near-zero variance. Using 1 component.")
+        return X_centered[:, :1], Vh[:1].T, mean, 1
+
+    explained_variance_ratio = explained_variance / total_var
+    cumulative_variance = torch.cumsum(explained_variance_ratio, dim=0)
+    
+    # 4. Find n_components with a fallback
+    # Look for the first index where threshold is met
+    mask = cumulative_variance >= threshold
+    indices = torch.where(mask)[0]
+    
+    if len(indices) > 0:
+        n_components = indices[0].item() + 1
+    else:
+        # Fallback: take all components if threshold is never reached
+        n_components = X.shape[1]
+        print(f"Threshold {threshold} not met. Using all {n_components} components.")
+    
+    actual_variance = cumulative_variance[n_components-1].item()
+    print(f"Captured {actual_variance*100:.2f}% variance with {n_components} components.")
+    
+    # 5. Project data
+    V = Vh[:n_components].T 
+    X_reduced = torch.mm(X_centered, V)
+    
+    return X_reduced, V, mean, n_components
