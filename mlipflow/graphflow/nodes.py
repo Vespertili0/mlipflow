@@ -11,7 +11,7 @@ from wfl.map import map as wfl_map
 
 from mlipflow.data import clean_up, setup_logging
 from mlipflow.data.processing import update_configset_tag, clean_configset_data
-from mlipflow.data.selection import split_configset_by_force_agreement
+from mlipflow.data.selection import split_configset_by_force_agreement, select_by_uncertainty
 from mlipflow.core.single_point import run_single_point, run_chunked_qe_sp
 from mlipflow.core.calculate_error import calculate_mlip_error
 from mlipflow.core.neb_pairing import create_neb_pairs
@@ -530,18 +530,18 @@ def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
     return {**state, 'configs': gen_result['configs'], 'original_configs': original_configs}
 
 
-def run_configuration_selection(state: EnsembleState) -> EnsembleState:
+def run_config_fps_selection(state: EnsembleState) -> EnsembleState:
     """
     Run two-stage configuration selection.
     Calculates global descriptors first, then runs selection.
     """
-    logger.info("Running configuration selection")
+    logger.info("Running configuration FPS selection...")
     
     if not state.get('configs'):
         logger.error("No configurations provided in state")
         raise ValueError("No configurations provided in state")
         
-    selection_kwargs = state.get('calculation_kwargs', {}).get('selection', {})
+    selection_kwargs = state.get('calculation_kwargs', {}).get('fps_selection', {})
     
     # Required parameters check
     if 'descriptor_string' not in selection_kwargs:
@@ -582,6 +582,27 @@ def run_configuration_selection(state: EnsembleState) -> EnsembleState:
     return {**state, 'configs': [final_output_file]}
 
 
+def run_config_uncertainty_selection(state: EnsembleState) -> EnsembleState:
+    """
+    """
+    logger.info("Running uncertainty-based configuration selection...")
+
+    selected_configs = 'selected_configs.xyz'
+
+    select_by_uncertainty(
+        train_file=state['original_configs'], 
+        pool_file=state['configs'], 
+        out_file=selected_configs, 
+        mlip_strategy=state['mlip_strategy'],
+        #certainty_threshold=state['calculation_kwargs']['selection']['certainty_threshold'], 
+        #pca_variance_threshold: float = 0.95,
+        #max_gmm_components: int = 30,
+        #gmm_n_init: int = 5,
+        #device: str = 'cpu',
+        #dtype: "torch.dtype" = None,
+    )
+
+    return {**state, 'configs': [selected_configs]}
 
 #def validate_state(state: EnsembleState, required_keys: list[str]) -> None:
 #    """Validate state contains required keys with non-empty values"""

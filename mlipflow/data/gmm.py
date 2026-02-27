@@ -2,7 +2,7 @@ import math, logging
 import torch
 from typing import Tuple, List, Optional
 from mlipflow.utils import find_robust_elbow
-from mlipflow.utils.logging import setup_logging
+from mlipflow.data import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -142,6 +142,7 @@ def find_best_gmm(X_reduced: torch.Tensor, max_k: int = 30, n_init: int = 5, dev
             - The best TorchGMM instance based on the BIC elbow curve.
             - A history list of tuples containing (K, BIC) evaluated.
     """
+    logger.info(f"Running GMM-Fitting ...")
     best_overall_gmm = None
     bic_history = []
     gmm_history = []
@@ -168,7 +169,7 @@ def find_best_gmm(X_reduced: torch.Tensor, max_k: int = 30, n_init: int = 5, dev
         bic = best_k_gmm.calculate_bic(X_reduced)
         bic_history.append((k, bic))
         gmm_history.append(best_k_gmm)
-        print(f"  Fit K={k} (Best of {n_init} attempts) | BIC: {bic:.2f}")
+        logger.info(f"  GMM-Fit: K={k} (Best of {n_init} attempts) | BIC: {bic:.2f}")
         
     # Find the elbow of the BIC curve
     bics = [b for (k, b) in bic_history]
@@ -255,6 +256,8 @@ def get_certainty_threshold(train_uncertainty_scores, certainty_percentile=0.80)
     threshold_idx = min(threshold_idx, len(sorted_train_scores) - 1)
     
     threshold_value = sorted_train_scores[threshold_idx].item()
+    logger.info(f"Certainty threshold for {certainty_percentile*100}% quantile: {threshold_value}")
+    
     return threshold_value
 
 
@@ -278,6 +281,7 @@ def select_uncertain_structures(pool_uncertainty_scores, threshold):
 
 
 def torch_pca_dynamic(X, threshold=0.95):
+    logger.info(f"Running PCA with threshold={threshold}...")
     # 1. Center the data
     mean = torch.mean(X, dim=0)
     X_centered = X - mean
@@ -291,7 +295,7 @@ def torch_pca_dynamic(X, threshold=0.95):
     
     # Handle edge case: Data has no variance
     if total_var < 1e-10:
-        print("Warning: Data has near-zero variance. Using 1 component.")
+        logger.warning("Data has near-zero variance. Using 1 component.")
         return X_centered[:, :1], Vh[:1].T, mean, 1
 
     explained_variance_ratio = explained_variance / total_var
@@ -307,10 +311,10 @@ def torch_pca_dynamic(X, threshold=0.95):
     else:
         # Fallback: take all components if threshold is never reached
         n_components = X.shape[1]
-        print(f"Threshold {threshold} not met. Using all {n_components} components.")
+        logger.warning(f"Threshold {threshold} not met. Using all {n_components} components.")
     
     actual_variance = cumulative_variance[n_components-1].item()
-    print(f"Captured {actual_variance*100:.2f}% variance with {n_components} components.")
+    logger.info(f"Captured {actual_variance*100:.2f}% variance with {n_components} components.")
     
     # 5. Project data
     V = Vh[:n_components].T 
