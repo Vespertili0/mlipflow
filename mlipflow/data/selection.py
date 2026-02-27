@@ -1,8 +1,16 @@
 import numpy as np
 from ase.io import write
+import torch
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.utils.misc import atoms_to_list
 from mlipflow.strategies.mlip import MACEModel
+from mlipflow.data.gmm import (
+    find_best_gmm, evaluate_pool_uncertainty, torch_pca_dynamic,
+    get_certainty_threshold, select_uncertain_structures
+)
+from mace.calculators import MACECalculator
+
+
 
 def split_configset_by_force_agreement(in_file, out_file, pair_tuple, main_suffix='train', side_suffix='test') -> None:
     """
@@ -68,11 +76,11 @@ def select_by_uncertainty(
     out_file: str, 
     mlip_strategy: MACEModel,
     certainty_threshold: float = 0.8, 
-    pca_threshold: int = 10,
+    pca_variance_threshold: float = 0.95,
     max_gmm_components: int = 30,
     gmm_n_init: int = 5,
     device: str = 'cpu',
-    dtype: torch.dtype = torch.float32,
+    dtype: "torch.dtype" = None,
 ) -> None:
     """
     Select new structures from a pool based on GMM uncertainty.
@@ -81,8 +89,11 @@ def select_by_uncertainty(
     - Extracts atomic descriptors from training configurations.
     - Fits a PCA on training descriptors and projects them.
     - Fits a PyTorch GMM on the PCA-reduced training descriptors.
-    - Evaluates uncertainty on pool configurations.
-    - Selects top `n_select` structures with the highest uncertainty.
+    - Evaluates uncertainty on pool configurations using structure-wise 
+      min-pooling of atomic log-likelihoods.
+    - Selects configurations that have a structure uncertainty score higher 
+      than the threshold defined by the `certainty_threshold` percentile on the 
+      training data.
 
     Parameters
     ----------
@@ -92,25 +103,24 @@ def select_by_uncertainty(
         Input file containing pool atomic configurations.
     out_file : str
         Output file to save the selected configurations.
-    n_select : int
-        Number of configurations to select.
-    desc_key : str, default='SOAP'
-        Key for atomic descriptors in atoms.arrays.
-    n_pca_components : int, default=10
-        Number of PCA components to retain.
+    mlip_strategy : MACEModel
+        The `MACEModel` defining the strategy and paths for calculation.
+    certainty_threshold : float, default=0.8
+        Percentile of the training data uncertainty distribution used as the cutoff 
+        for certainty. Structures with uncertainty above this value are selected.
+    pca_variance_threshold : float, default=0.95
+        Variance ratio to be captured by the dynamic PCA projection.
     max_gmm_components : int, default=30
         Maximum number of GMM components to search for.
     gmm_n_init : int, default=5
         Number of initialisations per GMM to avoid local minima.
-    device : str, default='cuda'
+    device : str, default='cpu'
         Device for PyTorch computations ('cuda' or 'cpu').
+    dtype : torch.dtype, optional
+        PyTorch dtype, defaults to torch.float32.
     """
-    import torch
-    from mlipflow.data.gmm import (
-        find_best_gmm, evaluate_pool_uncertainty, torch_pca_dynamic,
-        get_certainty_threshold, select_uncertain_structures
-    )
-    from mace.calculators import MACECalculator
+    if dtype is None:
+        dtype = torch.float32
 
     mlip_calc = MACECalculator(mlip_strategy.model_file)
 
@@ -121,16 +131,16 @@ def select_by_uncertainty(
     train_descr = np.array(
         [mlip_calc.get_descriptors(at) for at in train_configs]
     )
-    X_train = torch.from_numpy(train_descr).to(pt_device).float()
+    X_train = torch.from_numpy(train_descr).to(device).float()
     pool_descr = np.array(
         [mlip_calc.get_descriptors(at) for at in pool_configs]
     )
-    X_pool = torch.from_numpy(pool_descr).to(pt_device).float()
-    
+    X_pool = torch.from_numpy(pool_descr).to(device).float()
+
     # Run PCA on training data
     X_train_reduced, pca_V, pca_mean, n_paca_components = torch_pca_dynamic(
         X=X_train.reshape(-1, X_train.shape[-1]), 
-        threshold=pca_threshold
+        threshold=pca_variance_threshold
     )
     
     # Fit GMM & evalute uncertainty cutoff
