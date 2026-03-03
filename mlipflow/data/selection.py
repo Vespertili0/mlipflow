@@ -1,6 +1,8 @@
 import numpy as np
 from ase.io import write
 import torch
+import logging
+from mlipflow.data import setup_logging
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.utils.misc import atoms_to_list
 from mlipflow.strategies.mlip import MACEModel
@@ -10,6 +12,8 @@ from mlipflow.data.gmm import (
 )
 from mace.calculators import MACECalculator
 
+setup_logging()
+logger = logging.getLogger(__name__)
 
 
 def split_configset_by_force_agreement(in_file, out_file, pair_tuple, main_suffix='train', side_suffix='test') -> None:
@@ -125,7 +129,7 @@ def select_by_uncertainty(
     mlip_calc = MACECalculator(mlip_strategy.model_file)
 
     train_configs = atoms_to_list(ConfigSet(train_file))
-    pool_configs = atoms_to_list(ConfigSet(pool_file))
+    pool_configs = list(ConfigSet(pool_file))
     
     # Prepare descriptors
     train_descr = np.array(
@@ -162,6 +166,7 @@ def select_by_uncertainty(
 
     # Isolate uncertain frames
     selected_configs = [pool_configs[frame_idx] for frame_idx in uncertain_frames_tensor]   
+    logger.info(f"Selected {len(selected_configs)} configurations based on uncertainty threshold {gmm_threshold}")
     
     OutputSpec(out_file).write(ConfigSet(selected_configs))
 

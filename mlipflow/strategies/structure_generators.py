@@ -87,7 +87,7 @@ class MDGen(StructureGenStrategy):
 
 # Strategy using optimisation as generator
 class OPTGen(StructureGenStrategy):
-    def __init__(self, traj_subselect="last_converged", params={'fmax': 0.1, 'steps': 250}) -> None:
+    def __init__(self, traj_subselect="last", params={'fmax': 0.005, 'steps': 250}) -> None:
         super().__init__()
         self.traj_subselect = traj_subselect
         self.params = params
@@ -141,10 +141,11 @@ class OPTGen(StructureGenStrategy):
 
 # Strategy using CI-NEB as generator
 class NEBGen(StructureGenStrategy):
-    def __init__(self, traj_subselect="last_converged", params={'fmax': 0.1, 'steps': 1000}) -> None:
+    def __init__(self, traj_subselect="last", params={'fmax': 0.05, 'steps': 250}, n_images=9) -> None:
         super().__init__()
         self.traj_subselect = traj_subselect
         self.params = params
+        self.n_images = n_images
         self.calc_prefix = 'neb'
 
     def generate_new_structures(self, in_file, out_file, calculator, remote_info=None) -> None:
@@ -163,12 +164,14 @@ class NEBGen(StructureGenStrategy):
         **kwargs:
         neb_params will be passed as kwargs
         """
-        in_config = ConfigSet(in_file)
+        in_config = list(ConfigSet(in_file))
+        n_configs = len(in_config)
+        neb_sets = [in_config[i:i+self.n_images] for i in range(0, n_configs, self.n_images)]
         out_config = OutputSpec(out_file)
 
         if remote_info is None:
             run_neb(
-                inputs=in_config,
+                inputs=neb_sets,
                 outputs=out_config,
                 calculator=calculator,
                 traj_subselect=self.traj_subselect,
@@ -177,7 +180,7 @@ class NEBGen(StructureGenStrategy):
 
         elif remote_info:
             run_neb(
-                inputs=in_config,
+                inputs=neb_sets,
                 outputs=out_config,
                 calculator=calculator,
                 traj_subselect=self.traj_subselect,

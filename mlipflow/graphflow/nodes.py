@@ -15,7 +15,7 @@ from mlipflow.data.selection import split_configset_by_force_agreement, select_b
 from mlipflow.core.single_point import run_single_point, run_chunked_qe_sp
 from mlipflow.core.calculate_error import calculate_mlip_error
 from mlipflow.core.neb_pairing import create_neb_pairs
-from mlipflow.strategies.structure_generators import StructureGenStrategy, MDGen
+from mlipflow.strategies.structure_generators import StructureGenStrategy, MDGen, NEBGen, OPTGen
 from mlipflow.strategies.mlip import MLIPStrategy
 from mlipflow.strategies.dft import QChemStrategy
 from mlipflow.data.selector import ConfigurationSelector
@@ -43,9 +43,9 @@ class EnsembleState(TypedDict):
                 - 'basin__mlip_gen': kwargs for basin MLIP structure generation (e.g. dispersion)
                 - 'basin__structure_gen_params': kwargs for MD structure generation (e.g. rxn_constraints_dict, n_images)
                 - 'neb_config': dict of neb configuration parameters
-                - 'neb__mlip_gen': kwargs for neb MLIP structure generation (e.g. dispersion)
-                - 'neb__structure_gen_params': kwargs for MD structure generation (e.g. rxn_constraints_dict, n_images)
-            - 'selection': kwargs for configuration selection
+                - 'neb__mlip_gen': kwargs for neb MLIP MD generation (e.g. dispersion)
+                - 'neb__structure_gen_params': kwargs for MD generation (e.g. rxn_constraints_dict, n_images)
+            - 'fps_selection': kwargs for configuration selection
                 - 'descriptor_key': key for descriptor storage (e.g. 'SOAP')
                 - 'descriptor_string': descriptor string for quippy
                 - 'info_field': info field for histogram selection
@@ -59,6 +59,7 @@ class EnsembleState(TypedDict):
     structure_gen_strategy: NotRequired[StructureGenStrategy]
     calculation_kwargs: NotRequired[dict[str, Any]]
     original_configs: NotRequired[list[str]]
+    last_training_configs: NotRequired[list[str]]
 
 
 @dataclass
@@ -105,6 +106,18 @@ def merge_configs(state: EnsembleState) -> EnsembleState:
     OutputSpec('merged.xyz').write(merged)
 
     return {**state, 'configs': ['merged.xyz']}
+
+
+def switch_to_neb_generation(state: EnsembleState) -> EnsembleState:
+    """Switch from OPT to NEB generation."""
+    logger.info("Switching from OPT to NEB generation")
+
+    calc_kwargs = state.get('calculation_kwargs', {})
+    calc_kwargs['mlip_gen'] = calc_kwargs.get('neb__mlip_gen', {})
+    neb_params = calc_kwargs.get('neb__structure_gen_params', {})
+    new_strategy = NEBGen(params=neb_params)
+    
+    return {**state, "structure_gen_strategy": new_strategy, "calculation_kwargs": calc_kwargs}
 
 
 def run_dft_sp(state: EnsembleState) -> EnsembleState:
@@ -478,14 +491,25 @@ def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
     Generate NEB pairs and run structure generation immediately.
     """
     logger.info("Generating NEB pairs for structure generation")
+    neb_structure_gen_params = None
+    neb_mlip_gen = None
     
     if not state.get('configs'):
         logger.error("No configurations provided in state")
         raise ValueError("No configurations provided in state")
-        
-    sampling_kwargs = state.get('calculation_kwargs', {}).get('initial_sampling', {})
-    neb_config = sampling_kwargs.get('neb_config', {})
     
+    # Check for override kwargs
+    if isinstance(state['structure_gen_strategy'], MDGen):
+        logger.info("Structure generation strategy is MD on NEB pairs - initial sampling")
+        sampling_kwargs = state.get('calculation_kwargs', {}).get('initial_sampling', {})
+        neb_config = sampling_kwargs.get('neb_config', {})
+        neb_mlip_gen = sampling_kwargs.get('neb__mlip_gen', None)
+        neb_structure_gen_params = sampling_kwargs.get('neb__structure_gen_params', None)
+    
+    elif isinstance(state['structure_gen_strategy'], NEBGen):
+        logger.info("Structure generation strategy is NEB")
+        neb_config = state.get('calculation_kwargs', {}).get('neb_config', {})
+
     if not neb_config or 'rxn_constraints_dict' not in neb_config:
         logger.error("neb_config with 'rxn_constraints_dict' is required for NEB pair generation.")
         raise ValueError("neb_config with 'rxn_constraints_dict' is required for NEB pair generation.")
@@ -514,9 +538,7 @@ def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
         if os.path.exists(cleaned_file):
             os.remove(cleaned_file)
             
-    # Check for override kwargs
-    neb_mlip_gen = sampling_kwargs.get('neb__mlip_gen', None)
-    neb_structure_gen_params = sampling_kwargs.get('neb__structure_gen_params', None)
+
     
     # Pass flattened list of prepared atoms to generation logic
     gen_result = _run_structure_generation_logic(
@@ -590,7 +612,7 @@ def run_config_uncertainty_selection(state: EnsembleState) -> EnsembleState:
     selected_configs = 'selected_configs.xyz'
 
     select_by_uncertainty(
-        train_file=state['original_configs'], 
+        train_file=state['last_training_configs'], 
         pool_file=state['configs'], 
         out_file=selected_configs, 
         mlip_strategy=state['mlip_strategy'],
