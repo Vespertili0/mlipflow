@@ -38,7 +38,7 @@ def test_run_config_fps_selection(tmp_path):
         descriptor_string = "soap cutoff=4.0 l_max=4 n_max=4 atom_sigma=0.5 n_Z=1 Z={29} n_species=1 species_Z={29}"
 
         calculation_kwargs = {
-            'selection': {
+            'fps_selection': {
                 'descriptor_string': descriptor_string,
                 'descriptor_key': 'SOAP',
                 'info_field': 'dummy_energy',
