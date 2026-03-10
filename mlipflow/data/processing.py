@@ -17,7 +17,7 @@ def check_maxforce_and_cleanarrays(in_file: str, out_file: str, mlip_prefix: str
     array_keys = ['numbers', 'positions', 'tags', 'DFT_forces', f'last_op__{keys.get(calc)}_forces']
     info_keys = ['MD_step', 'DFT_energy', f'last_op__{keys.get(calc)}_energy', 'config_type', 'data_type']
 
-    all_configs = [a for a in read(in_file, ':') if 'DFT_energy' in a.info.keys()]
+    all_configs = [a for a in read(in_file, ':') if 'DFT_energy' in a.info]
     
     assert all_configs, 'no valid structures from DFT! check data'
     
@@ -92,7 +92,7 @@ def split_success_failed_configs(configs: list, key: str = 'DFT_energy') -> tupl
     success_configs = []
     failed_configs = []
     for config in configs:
-        if key not in config.info.keys():
+        if key not in config.info:
             failed_configs.append(config)
         else:
             success_configs.append(config)

@@ -114,7 +114,7 @@ class DataManager:
         array_keys = ['numbers', 'positions', 'tags', 'DFT_forces', f'last_op__{keys.get(calc)}_forces'] #, 'GAP_uncertainty_meV'
         info_keys = ['MD_step', 'DFT_energy', f'last_op__{keys.get(calc)}_energy', 'config_type', 'data_type']
 
-        all_configs = [a for a in read(in_file, ':') if 'DFT_energy' in a.info.keys()]
+        all_configs = [a for a in read(in_file, ':') if 'DFT_energy' in a.info]
         
         assert all_configs, 'no valid structures from DFT! check data'
         
@@ -169,7 +169,7 @@ class DataManager:
         success_configs = []
         failed_configs = []
         for config in configs:
-            if key not in config.info.keys():
+            if key not in config.info:
                 failed_configs.append(config)
             else:
                 success_configs.append(config)
