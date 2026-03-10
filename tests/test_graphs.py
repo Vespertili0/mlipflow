@@ -76,7 +76,7 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
             },
             'mlip_gen': {'dispersion': False}, # Disable dispersion to avoid dftd3 dependency issues if any
             'mlip_sp': {'dispersion': False},
-            'selection': {
+            'fps_selection': {
                 'descriptor_string': 'soap n_species=4 species_Z={1 6 8 29} l_max=6 n_max=8 cutoff=3.5 atom_sigma=0.5 zeta=6',
                 'info_field': 'MACE_energy',
                 'n_optimal': 5
