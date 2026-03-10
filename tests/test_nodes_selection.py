@@ -4,11 +4,11 @@ import pytest
 import numpy as np
 from unittest.mock import MagicMock
 from ase.io import read, write
-from mlipflow.graphflow.nodes import run_configuration_selection, EnsembleState
+from mlipflow.graphflow.nodes import run_config_fps_selection, EnsembleState
 
-def test_run_configuration_selection(tmp_path):
+def test_run_config_fps_selection(tmp_path):
     """
-    Test run_configuration_selection using real data and dummy info fields.
+    Test run_config_fps_selection using real data and dummy info fields.
     """
     # Setup paths
     test_dir = os.path.dirname(os.path.abspath(__file__))
@@ -38,7 +38,7 @@ def test_run_configuration_selection(tmp_path):
         descriptor_string = "soap cutoff=4.0 l_max=4 n_max=4 atom_sigma=0.5 n_Z=1 Z={29} n_species=1 species_Z={29}"
 
         calculation_kwargs = {
-            'selection': {
+            'fps_selection': {
                 'descriptor_string': descriptor_string,
                 'descriptor_key': 'SOAP',
                 'info_field': 'dummy_energy',
@@ -59,7 +59,7 @@ def test_run_configuration_selection(tmp_path):
         )
 
         # Run selection
-        result = run_configuration_selection(state)
+        result = run_config_fps_selection(state)
 
         # Verify output
         output_configs = result['configs']

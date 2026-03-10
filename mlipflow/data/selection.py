@@ -1,7 +1,20 @@
 import numpy as np
 from ase.io import write
-from wfl.configset import ConfigSet
+import torch
+import logging
+from mlipflow.data import setup_logging
+from wfl.configset import ConfigSet, OutputSpec
 from wfl.utils.misc import atoms_to_list
+from mlipflow.strategies.mlip import MACEModel
+from mlipflow.data.gmm import (
+    find_best_gmm, evaluate_pool_uncertainty, torch_pca_dynamic,
+    get_certainty_threshold, select_uncertain_structures
+)
+from mace.calculators import MACECalculator
+
+setup_logging()
+logger = logging.getLogger(__name__)
+
 
 def split_configset_by_force_agreement(in_file, out_file, pair_tuple, main_suffix='train', side_suffix='test') -> None:
     """
@@ -59,3 +72,102 @@ def split_configset_by_force_agreement(in_file, out_file, pair_tuple, main_suffi
     
     for atoms, suffix in zip([main_at, side_at], [main_suffix, side_suffix]):
         write(f'{suffix}_{out_file}', atoms)
+
+
+def select_by_uncertainty(
+    train_file: str, 
+    pool_file: str, 
+    out_file: str, 
+    mlip_strategy: MACEModel,
+    certainty_threshold: float = 0.8, 
+    pca_variance_threshold: float = 0.95,
+    max_gmm_components: int = 30,
+    gmm_n_init: int = 5,
+    device: str = 'cpu',
+    dtype: "torch.dtype" = None,
+) -> None:
+    """
+    Select new structures from a pool based on GMM uncertainty.
+    
+    Logic:
+    - Extracts atomic descriptors from training configurations.
+    - Fits a PCA on training descriptors and projects them.
+    - Fits a PyTorch GMM on the PCA-reduced training descriptors.
+    - Evaluates uncertainty on pool configurations using structure-wise 
+      min-pooling of atomic log-likelihoods.
+    - Selects configurations that have a structure uncertainty score higher 
+      than the threshold defined by the `certainty_threshold` percentile on the 
+      training data.
+
+    Parameters
+    ----------
+    train_file : str
+        Input file containing training atomic configurations.
+    pool_file : str
+        Input file containing pool atomic configurations.
+    out_file : str
+        Output file to save the selected configurations.
+    mlip_strategy : MACEModel
+        The `MACEModel` defining the strategy and paths for calculation.
+    certainty_threshold : float, default=0.8
+        Percentile of the training data uncertainty distribution used as the cutoff 
+        for certainty. Structures with uncertainty above this value are selected.
+    pca_variance_threshold : float, default=0.95
+        Variance ratio to be captured by the dynamic PCA projection.
+    max_gmm_components : int, default=30
+        Maximum number of GMM components to search for.
+    gmm_n_init : int, default=5
+        Number of initialisations per GMM to avoid local minima.
+    device : str, default='cpu'
+        Device for PyTorch computations ('cuda' or 'cpu').
+    dtype : torch.dtype, optional
+        PyTorch dtype, defaults to torch.float32.
+    """
+    if dtype is None:
+        dtype = torch.float32
+
+    mlip_calc = MACECalculator(mlip_strategy.model_file)
+
+    train_configs = atoms_to_list(ConfigSet(train_file))
+    pool_configs = list(ConfigSet(pool_file))
+    
+    # Prepare descriptors
+    train_descr = np.array(
+        [mlip_calc.get_descriptors(at) for at in train_configs]
+    )
+    X_train = torch.from_numpy(train_descr).to(device).float()
+    pool_descr = np.array(
+        [mlip_calc.get_descriptors(at) for at in pool_configs]
+    )
+    X_pool = torch.from_numpy(pool_descr).to(device).float()
+
+    # Run PCA on training data
+    X_train_reduced, pca_V, pca_mean, n_paca_components = torch_pca_dynamic(
+        X=X_train.reshape(-1, X_train.shape[-1]), 
+        threshold=pca_variance_threshold
+    )
+    
+    # Fit GMM & evalute uncertainty cutoff
+    best_gmm = find_best_gmm(
+        X_reduced=X_train_reduced, 
+        max_k=max_gmm_components, 
+        n_init=gmm_n_init, 
+        device=device
+    )
+    train_atom_ll = evaluate_pool_uncertainty(best_gmm, pca_V, pca_mean, X_train)
+    gmm_threshold = get_certainty_threshold(
+        train_atom_ll, 
+        certainty_percentile=certainty_threshold
+    )
+    
+    # Identify pool members with uncertainty below threshold
+    pool_atom_ll = evaluate_pool_uncertainty(best_gmm, pca_V, pca_mean, X_pool)
+    uncertain_frames_tensor = select_uncertain_structures(pool_atom_ll, gmm_threshold)
+
+    # Isolate uncertain frames
+    selected_configs = [pool_configs[frame_idx] for frame_idx in uncertain_frames_tensor]   
+    logger.info(f"Selected {len(selected_configs)} configurations based on uncertainty threshold {gmm_threshold}")
+    
+    OutputSpec(out_file).write(ConfigSet(selected_configs))
+
+    return None
