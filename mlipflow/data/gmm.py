@@ -20,7 +20,7 @@ class TorchGMM:
         self.jitter = jitter # for numerical stability of covariance matrices
         self.dtype = dtype
         
-        # Initialize parameters with explicit dtype
+        # Initialise parameters with explicit dtype
         self.mu = torch.randn(self.K, self.D, device=device, dtype=self.dtype)
         self.sigma = torch.stack([torch.eye(self.D, device=device, dtype=self.dtype) for _ in range(self.K)])
         self.pi = torch.ones(self.K, device=device, dtype=self.dtype) / self.K
@@ -60,7 +60,7 @@ class TorchGMM:
 
     def fit(self, x: torch.Tensor, iters: int = 100):
         """
-        Fits the GMM parameters (mu, sigma, pi) to the data using Expectation-Maximization (EM).
+        Fits the GMM parameters (mu, sigma, pi) to the data using Expectation-Maximisation (EM).
 
         Args:
             x (torch.Tensor): Training data. Shape: (N_samples, N_features).
@@ -75,7 +75,7 @@ class TorchGMM:
             self.pi = torch.tensor([1.0], device=self.device, dtype=self.dtype)
             return
 
-        # Expectation-Maximization Loop
+        # Expectation-Maximisation Loop
         for _ in range(iters):
             # E-Step
             # Get the log likelihoods
@@ -201,11 +201,11 @@ def train_gmm(
             gmm = TorchGMM(n_components=current_k, n_features=X_reduced.shape[1], device=device)
             gmm.fit(X_reduced, iters=n_iters)
             
-            # Score this specific initialization
+            # Score this specific initialisation
             with torch.no_grad():
                 ll = gmm.score(X_reduced).sum().item()
             
-            # Keep the best initialization for this K
+            # Keep the best initialisation for this K
             if ll > best_init_ll:
                 best_init_ll = ll
                 best_init_gmm = gmm
@@ -217,7 +217,7 @@ def train_gmm(
             gmm_history.append(best_init_gmm)
             logger.info(f"  GMM-Fit: K={current_k} (Best of {n_init}) | BIC: {bic:.2f}")
         else:
-            # We just wanted one specific K, return its best initialization immediately
+            # We just wanted one specific K, return its best initialisation immediately
             logger.info(f"  GMM-Fit: Fixed K={current_k} (Best of {n_init} attempts)")
             return best_init_gmm
         
@@ -281,6 +281,11 @@ def compute_descriptors(
     Returns:
         Tuple of (X_padded, X_flat).
     """
+    # Handle the case where configs is an iterator or generator like ConfigSet
+    # so we can use len() safely later.
+    if not isinstance(configs, list):
+        configs = list(configs)
+
     raw = [
         torch.from_numpy(calc.get_descriptors(at)).to(device=device, dtype=dtype)
         for at in configs
