@@ -3,7 +3,8 @@ import pytest
 import numpy as np
 from ase import Atoms
 from ase.io import write, read
-from mlipflow.data.selection import split_configset_by_force_agreement
+from mlipflow.data.selection import split_configset_by_force_agreement, select_by_uncertainty
+from mlipflow.strategies.mlip import MACEModel
 
 def test_split_configset_by_force_agreement(tmp_path):
     """Test split_configset_by_force_agreement."""
@@ -72,3 +73,35 @@ def test_split_configset_by_force_agreement(tmp_path):
 
     finally:
         os.chdir(cwd)
+
+
+def test_select_by_uncertainty(tmp_path):
+    """Test GMM-driven selection of uncertain structures."""
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+    mlip_name = os.path.join(test_dir, 'data', 'mace_test')
+    test_data = os.path.join(test_dir, 'data', 'test_data.xyz')
+    
+    # Initialise MACEModel strategy
+    mace_model = MACEModel(mlip_name=mlip_name, run_mode="local")
+    
+    out_file = tmp_path / "selected.xyz"
+    
+    # Run the uncertainty selection using test data as both train and pool
+    # We use very few GMM components and initialisations to keep the test fast
+    select_by_uncertainty(
+        train_file=test_data,
+        pool_file=test_data,
+        out_file=str(out_file),
+        mlip_strategy=mace_model,
+        certainty_threshold=0.8,        # The top 20% most uncertain will be selected
+        pca_variance_threshold=0.95,
+        max_gmm_components=2,
+        gmm_n_init=1,
+        device='cpu'
+    )
+    
+    assert os.path.exists(out_file)
+    selected = read(out_file, ':')
+    
+    # The output should contain some selected structures
+    assert len(selected) > 0

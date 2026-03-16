@@ -1,6 +1,6 @@
-from typing import List, Optional, Dict, Any, Union, Tuple
+from typing import List, Optional, Any, Union, Tuple
 import numpy as np
-import warnings, logging
+import logging
 import matplotlib.pyplot as plt
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.descriptors import quippy
