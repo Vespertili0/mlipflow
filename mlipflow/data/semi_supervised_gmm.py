@@ -126,7 +126,7 @@ class GMMRefiner:
             self.X_pool_padded, self.pca_V_0, self.pca_mean_0
         )
         self.pool_certainty_0 = evaluate_structure_cluster_probability(
-            self.gmm_0, self.X_pool_proj_0, self.mask_pool_0
+            self.gmm_0, self.X_pool_padded, self.pca_V_0, self.pca_mean_0
         )
         logger.info(
             f"Pool certainty (pass 0): "
@@ -217,7 +217,7 @@ class GMMRefiner:
             self.X_pool_padded, self.pca_V_1, self.pca_mean_1
         )
         pool_certainty_1 = evaluate_structure_cluster_probability(
-            self.gmm_1, X_pool_proj_1, mask_pool_1
+            self.gmm_1, self.X_pool_padded, self.pca_V_1, self.pca_mean_1
         )
         logger.info(
             f"Pool certainty (final): "

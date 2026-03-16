@@ -281,6 +281,84 @@ def compute_descriptors(
     Returns:
         Tuple of (X_padded, X_flat).
     """
+    raw = []
+
+    # Handle the case where configs is an iterator or generator like ConfigSet
+    # so we can use len() safely later.
+    if not isinstance(configs, list):
+        configs = list(configs)
+
+    # Check if we need to apply the workaround for the MACECalculator TorchScript bug
+    needs_patch = False
+    if len(calc.models) > 0 and isinstance(calc.models[0].products, torch.jit._script.RecursiveScriptModule):
+        needs_patch = True
+
+    if needs_patch:
+        import types
+
+        # Define the patched version
+        def patched_get_descriptors(self, atoms=None, invariants_only=True, num_layers=-1):
+            import numpy as np
+            from e3nn import o3
+
+            # extract_invariant is missing in mace.tools in this version, so we must be careful.
+            # But we can get it from mace.calculators.mace if needed.
+            try:
+                from mace.calculators.mace import extract_invariant
+            except ImportError:
+                # Fallback to mace.tools if it moved
+                from mace.tools import extract_invariant
+
+            if atoms is None and self.atoms is None:
+                raise ValueError("atoms not set")
+            if atoms is None:
+                atoms = self.atoms
+            if self.model_type != "MACE":
+                raise NotImplementedError("Only implemented for MACE models")
+            num_interactions = int(self.models[0].num_interactions)
+            if num_layers == -1:
+                num_layers = num_interactions
+            batch = self._atoms_to_batch(atoms)
+            descriptors = [model(batch.to_dict())["node_feats"] for model in self.models]
+
+            model = self.models[0]
+            # Safely get irreps_out without indexing a ScriptModule directly
+            products_0 = getattr(model.products, '0')
+            irreps_out_str = str(products_0.linear.irreps_out)
+            if irreps_out_str.startswith('('):
+                irreps_out = o3.Irreps(eval(irreps_out_str))
+            else:
+                irreps_out = o3.Irreps(irreps_out_str)
+
+            l_max = irreps_out.lmax
+            num_invariant_features = irreps_out.dim // (l_max + 1) ** 2
+            per_layer_features = [irreps_out.dim for _ in range(num_interactions)]
+            per_layer_features[-1] = (
+                num_invariant_features
+            )
+
+            if invariants_only:
+                descriptors = [
+                    extract_invariant(
+                        descriptor,
+                        num_layers=num_layers,
+                        num_features=num_invariant_features,
+                        l_max=l_max,
+                    )
+                    for descriptor in descriptors
+                ]
+            to_keep = np.sum(per_layer_features[:num_layers])
+            descriptors = [
+                descriptor[:, :to_keep].detach().cpu().numpy() for descriptor in descriptors
+            ]
+
+            if self.num_models == 1:
+                return descriptors[0]
+            return descriptors
+
+        # Apply the patch to the instance safely
+        calc.get_descriptors = types.MethodType(patched_get_descriptors, calc)
+
     raw = [
         torch.from_numpy(calc.get_descriptors(at)).to(device=device, dtype=dtype)
         for at in configs
