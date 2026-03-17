@@ -1,9 +1,13 @@
-import os
-import pytest
+from __future__ import annotations
+
+import json
 from unittest.mock import MagicMock, patch
-from mlipflow.strategies.dft import EMTCalc, QECalculator
+
 from ase.calculators.emt import EMT
 from wfl.calculators.espresso import Espresso
+
+from mlipflow.strategies.dft import EMTCalc, QECalculator
+
 
 def test_emt_calc_get_calculator():
     strategy = EMTCalc()
@@ -34,7 +38,7 @@ def test_qe_calculator_init(tmp_path):
         },
         "electrons": {}
     }
-    import json
+
     params_file.write_text(json.dumps(params_content))
 
     pseudo_dir = tmp_path / "pseudo"
@@ -43,9 +47,9 @@ def test_qe_calculator_init(tmp_path):
     strategy = QECalculator(basic_params=str(params_file), pseudopots={}, pseudo_dir=str(pseudo_dir))
     assert strategy.basic_params == str(params_file)
     assert strategy.pseudo_dir == str(pseudo_dir)
-    assert strategy.qe_prefix == 'DFT_'
+    assert strategy.qe_prefix == "DFT_"
 
-@patch('mlipflow.strategies.dft.prepare_remote')
+@patch("mlipflow.strategies.dft.prepare_remote")
 def test_qe_calculator_get_calculator(mock_prepare_remote, tmp_path):
     # Setup
     params_file = tmp_path / "basic_params.json"
@@ -67,7 +71,7 @@ def test_qe_calculator_get_calculator(mock_prepare_remote, tmp_path):
         },
         "electrons": {}
     }
-    import json
+
     params_file.write_text(json.dumps(params_content))
     pseudo_dir = tmp_path / "pseudo"
     pseudo_dir.mkdir()
@@ -80,17 +84,17 @@ def test_qe_calculator_get_calculator(mock_prepare_remote, tmp_path):
 
     assert calc_class == Espresso
     assert strategy.remote_info is not None
-    assert kwargs['rundir_prefix'] == 'QE_'
-    assert kwargs['input_data']['control']['calculation'] == 'scf'
-    assert kwargs['input_data']['system']['ecutwfc'] == 64.97 # Based on default logic
+    assert kwargs["rundir_prefix"] == "QE_"
+    assert kwargs["input_data"]["control"]["calculation"] == "scf"
+    assert kwargs["input_data"]["system"]["ecutwfc"] == 64.97 # Based on default logic
 
     # Check remote settings
     mock_prepare_remote.assert_called()
     call_kwargs = mock_prepare_remote.call_args[1]
-    assert call_kwargs['max_time'] == '01:25:00'
-    assert call_kwargs['job_name'] == 'test_job'
+    assert call_kwargs["max_time"] == "01:25:00"
+    assert call_kwargs["job_name"] == "test_job"
 
-@patch('mlipflow.strategies.dft.prepare_remote')
+@patch("mlipflow.strategies.dft.prepare_remote")
 def test_qe_calculator_get_calculator_relax(mock_prepare_remote, tmp_path):
     # Setup
     params_file = tmp_path / "basic_params.json"
@@ -112,7 +116,7 @@ def test_qe_calculator_get_calculator_relax(mock_prepare_remote, tmp_path):
         },
         "electrons": {}
     }
-    import json
+
     params_file.write_text(json.dumps(params_content))
     pseudo_dir = tmp_path / "pseudo"
     pseudo_dir.mkdir()
@@ -124,5 +128,5 @@ def test_qe_calculator_get_calculator_relax(mock_prepare_remote, tmp_path):
 
     # Check remote settings for relax
     call_kwargs = mock_prepare_remote.call_args[1]
-    assert call_kwargs['max_time'] == '06:25:00'
-    assert call_kwargs['n_cores'] == 32
+    assert call_kwargs["max_time"] == "06:25:00"
+    assert call_kwargs["n_cores"] == 32

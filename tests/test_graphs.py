@@ -1,14 +1,18 @@
+from __future__ import annotations
+
 import os
 import shutil
-import pytest
 from unittest.mock import MagicMock
-from ase.io import read
+
 from ase.constraints import FixAtoms
-from mlipflow.graphflow.nodes import EnsembleState
+from ase.io import read
+
 from mlipflow.graphflow.graphs import execute_initial_basin_pathsampling_md_block
+from mlipflow.graphflow.nodes import EnsembleState
+from mlipflow.strategies.dft import EMTCalc
 from mlipflow.strategies.mlip import MACEModel
 from mlipflow.strategies.structure_generators import MDGen
-from mlipflow.strategies.dft import EMTCalc
+
 
 def test_execute_initial_basin_pathsampling_md_block(tmp_path):
     """
@@ -17,7 +21,7 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
     """
     # Setup paths
     test_dir = os.path.dirname(os.path.abspath(__file__))
-    src_xyz = os.path.join(test_dir, 'data', 'test_data.xyz')
+    src_xyz = os.path.join(test_dir, "data", "test_data.xyz")
     # src_model = os.path.join(test_dir, 'data', 'mace_test.model')
 
     config_file = tmp_path / "test_data.xyz"
@@ -46,9 +50,9 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
 
         # MDGen with minimal steps
         structure_gen_strategy = MDGen(
-            uncertainty_thrs=float('inf'), # Infinite threshold to ensure MD runs even with bad random structures
+            uncertainty_thrs=float("inf"), # Infinite threshold to ensure MD runs even with bad random structures
             n_failed_steps=2,
-            params={'steps': 5, 'dt': 1.0, 'temperature': 300.0, 'traj_step_interval': 1}
+            params={"steps": 5, "dt": 1.0, "temperature": 300.0, "traj_step_interval": 1}
         )
 
         # QChem strategy (dummy)
@@ -61,30 +65,30 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
         # Reaction constraints for NEB
         # tFUR+2H -> tFURao+H
         rxn_constraints_dict = {
-            'tFUR+2H -> tFURao+H': constraints
+            "tFUR+2H -> tFURao+H": constraints
         }
 
         calculation_kwargs = {
-            'initial_sampling': {
-                'basin_constraints': constraints,
-                'neb_config': {
-                    'rxn_constraints_dict': rxn_constraints_dict,
-                    'method': 'random',
-                    'n_pathways': 1,
-                    'n_images': 3
+            "initial_sampling": {
+                "basin_constraints": constraints,
+                "neb_config": {
+                    "rxn_constraints_dict": rxn_constraints_dict,
+                    "method": "random",
+                    "n_pathways": 1,
+                    "n_images": 3
                 }
             },
-            'mlip_gen': {'dispersion': False}, # Disable dispersion to avoid dftd3 dependency issues if any
-            'mlip_sp': {'dispersion': False},
-            'fps_selection': {
-                'descriptor_string': 'soap n_species=4 species_Z={1 6 8 29} l_max=6 n_max=8 cutoff=3.5 atom_sigma=0.5 zeta=6',
-                'info_field': 'MACE_energy',
-                'n_optimal': 5
+            "mlip_gen": {"dispersion": False}, # Disable dispersion to avoid dftd3 dependency issues if any
+            "mlip_sp": {"dispersion": False},
+            "fps_selection": {
+                "descriptor_string": "soap n_species=4 species_Z={1 6 8 29} l_max=6 n_max=8 cutoff=3.5 atom_sigma=0.5 zeta=6",
+                "info_field": "MACE_energy",
+                "n_optimal": 5
             }
         }
 
         state = EnsembleState(
-            configs=['test_data.xyz'],
+            configs=["test_data.xyz"],
             qchem_strategy=qchem_strategy,
             mlip_strategy=mlip_strategy,
             structure_gen_strategy=structure_gen_strategy,
@@ -96,26 +100,26 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
         result = app.invoke(state)
 
         # Verify
-        assert result['outfile'] is None
-        assert result['configs'] is not None
-        assert len(result['configs']) > 0
+        assert result["outfile"] is None
+        assert result["configs"] is not None
+        assert len(result["configs"]) > 0
 
         # Check files
-        for f in result['configs']:
+        for f in result["configs"]:
             assert os.path.exists(f)
-            assert f.endswith('final_selection.xyz')
+            assert f.endswith("final_selection.xyz")
 
-            atoms = read(f, ':')
+            atoms = read(f, ":")
             assert len(atoms) > 0
 
             # Check for MACE results
             # run_mlip_sp uses output_prefix=mlip.mlip_prefix which is 'MACE_'
             for at in atoms:
-                assert 'MACE_energy' in at.info
+                assert "MACE_energy" in at.info
                 # For EMT, forces are computed.
                 # Note: 'MACE_forces' might be missing if single_point didn't run properly?
                 # But run_mlip_sp calls run_single_point which requests properties=["energy", "forces"]
-                assert 'MACE_forces' in at.arrays
+                assert "MACE_forces" in at.arrays
 
     finally:
         os.chdir(cwd)

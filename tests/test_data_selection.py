@@ -1,10 +1,17 @@
+from __future__ import annotations
+
 import os
-import pytest
+
 import numpy as np
 from ase import Atoms
-from ase.io import write, read
-from mlipflow.data.selection import split_configset_by_force_agreement, select_by_uncertainty
+from ase.io import read, write
+
+from mlipflow.data.selection import (
+    select_by_uncertainty,
+    split_configset_by_force_agreement,
+)
 from mlipflow.strategies.mlip import MACEModel
+
 
 def test_split_configset_by_force_agreement(tmp_path):
     """Test split_configset_by_force_agreement."""
@@ -12,16 +19,16 @@ def test_split_configset_by_force_agreement(tmp_path):
     atoms_list = []
     n_total = 100
     for i in range(n_total):
-        at = Atoms('H', positions=[[0, 0, 0]])
+        at = Atoms("H", positions=[[0, 0, 0]])
         # DFT forces: all zeros
-        at.arrays['DFT_forces'] = np.array([[0.0, 0.0, 0.0]])
+        at.arrays["DFT_forces"] = np.array([[0.0, 0.0, 0.0]])
         # MACE forces: varied error.
         # For i < 80, error is small (0.1)
         # For i >= 80, error is large (10.0)
         # So top 20% should be the ones with index >= 80.
         error = 10.0 if i >= 80 else 0.1
-        at.arrays['MACE_forces'] = np.array([[error, 0.0, 0.0]])
-        at.info['index'] = i
+        at.arrays["MACE_forces"] = np.array([[error, 0.0, 0.0]])
+        at.info["index"] = i
         atoms_list.append(at)
 
     in_file = tmp_path / "test_selection.xyz"
@@ -43,9 +50,9 @@ def test_split_configset_by_force_agreement(tmp_path):
         split_configset_by_force_agreement(
             in_file="test_selection.xyz",
             out_file="split.xyz",
-            pair_tuple=('DFT_', 'MACE_'),
-            main_suffix='train',
-            side_suffix='test'
+            pair_tuple=("DFT_", "MACE_"),
+            main_suffix="train",
+            side_suffix="test"
         )
 
         train_file = "train_split.xyz"
@@ -54,8 +61,8 @@ def test_split_configset_by_force_agreement(tmp_path):
         assert os.path.exists(train_file)
         assert os.path.exists(test_file)
 
-        train_atoms = read(train_file, ':')
-        test_atoms = read(test_file, ':')
+        train_atoms = read(train_file, ":")
+        test_atoms = read(test_file, ":")
 
         # Logic:
         # Top 20% (highest MAE) -> 20 atoms (indices 80-99). These MUST be in train.
@@ -67,7 +74,7 @@ def test_split_configset_by_force_agreement(tmp_path):
         assert len(test_atoms) == 20
 
         # Verify that all top 20% are in train
-        train_indices = [at.info['index'] for at in train_atoms]
+        train_indices = [at.info["index"] for at in train_atoms]
         for i in range(80, 100):
             assert i in train_indices
 
@@ -78,14 +85,14 @@ def test_split_configset_by_force_agreement(tmp_path):
 def test_select_by_uncertainty(tmp_path):
     """Test GMM-driven selection of uncertain structures."""
     test_dir = os.path.dirname(os.path.abspath(__file__))
-    mlip_name = os.path.join(test_dir, 'data', 'mace_test')
-    test_data = os.path.join(test_dir, 'data', 'test_data.xyz')
-    
+    mlip_name = os.path.join(test_dir, "data", "mace_test")
+    test_data = os.path.join(test_dir, "data", "test_data.xyz")
+
     # Initialise MACEModel strategy
     mace_model = MACEModel(mlip_name=mlip_name, run_mode="local")
-    
+
     out_file = tmp_path / "selected.xyz"
-    
+
     # Run the uncertainty selection using test data as both train and pool
     # We use very few GMM components and initialisations to keep the test fast
     select_by_uncertainty(
@@ -97,11 +104,11 @@ def test_select_by_uncertainty(tmp_path):
         pca_variance_threshold=0.95,
         max_gmm_components=2,
         gmm_n_init=1,
-        device='cpu'
+        device="cpu"
     )
-    
+
     assert os.path.exists(out_file)
-    selected = read(out_file, ':')
-    
+    selected = read(out_file, ":")
+
     # The output should contain some selected structures
     assert len(selected) > 0
