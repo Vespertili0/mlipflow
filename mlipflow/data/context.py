@@ -81,7 +81,7 @@ class DataManager:
         )
 
     def initialise_ensembles(self, ensemble_traj: str) -> None:
-        """Initialize ensemble from trajectory file."""
+        """Initialise ensemble from trajectory file."""
         if not os.path.exists(ensemble_traj):
             raise FileNotFoundError(f"Ensemble trajectory file {ensemble_traj} not found")
         try:
@@ -89,7 +89,7 @@ class DataManager:
             configs = read(self.files.get("ensemble_traj"), ':')
             write(self.files.get("ensemble_xyz"), configs)
         except Exception as e:
-            raise RuntimeError(f"Failed to initialize ensembles: {str(e)}")
+            raise RuntimeError(f"Failed to Initialise ensembles: {str(e)}")
     
     def move_mace_model_file(self, file_prefix: str) -> None:
         """

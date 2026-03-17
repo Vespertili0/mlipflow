@@ -20,7 +20,7 @@ class QChemStrategy(ABC):
         qe_prefix (str): Prefix for QE calculations.
     """
     def __init__(self) -> None:
-        """Initialize the QChemStrategy."""
+        """Initialise the QChemStrategy."""
         self.qe_prefix = 'DFT_'
 
     @abstractmethod
@@ -42,7 +42,7 @@ class EMTCalc(QChemStrategy):
     EMT strategy class for debugging and testing.
     """
     def __init__(self) -> None:
-        """Initialize the EMTCalc strategy."""
+        """Initialise the EMTCalc strategy."""
         super().__init__()
         self.remote_info = None
 
@@ -71,7 +71,7 @@ class QECalculator(QChemStrategy):
     """
     def __init__(self, basic_params: str, pseudopots: dict, pseudo_dir: str) -> None:
         """
-        Initialize the QECalculator.
+        Initialise the QECalculator.
 
         Args:
             basic_params (str): Path to basic parameters JSON file.

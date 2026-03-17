@@ -18,7 +18,7 @@ class NEBPairFinder:
         structures (list): List of ASE Atoms objects loaded from the input file.
     """
     def __init__(self, structures_file):
-        """Initializes with path to structure file and prints statistics.
+        """Initialises with path to structure file and prints statistics.
         
         Args:
             structures_file (str): Path to the XYZ file containing structures.
@@ -187,7 +187,7 @@ def create_similarity_matrix(mols1, descriptor_string, atom_slice=slice(None), m
         mols2 (list, optional): Second list of Atoms objects. If None, computes self-similarity of mols1.
         
     Returns:
-        np.ndarray: Calculated similarity matrix (normalized dot product).
+        np.ndarray: Calculated similarity matrix (normalised dot product).
     """
     desc = Descriptor(descriptor_string)
     

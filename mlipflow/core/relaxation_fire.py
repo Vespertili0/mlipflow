@@ -20,7 +20,7 @@ def _run_autopara_wrappable(
     ----------
     atoms: list(Atoms)
         input configs
-    calculator: Calculator / (initializer, args, kwargs)
+    calculator: Calculator / (Initialiser, args, kwargs)
         ASE calculator or routine to call to create calculator
     fmax: float, default 1e-3
         force convergence tolerance

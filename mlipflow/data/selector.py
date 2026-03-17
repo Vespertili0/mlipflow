@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class ConfigurationSelector:
     def __init__(self, inputs: Union[ConfigSet, List[Any]], output_prefix: str, seed: int = 10):
         """
-        Initializes the ConfigurationSelector.
+        Initialises the ConfigurationSelector.
 
         Args:
             inputs: Input configurations (ConfigSet or list of Atoms).

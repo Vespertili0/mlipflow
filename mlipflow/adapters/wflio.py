@@ -18,7 +18,7 @@ class GAPCalc(WFLFileIOCalculator, Potential):
     def __init__(self, keep_files: str = 'default', rundir_prefix: str = 'run_GAP_', 
                  workdir: str | None = None, scratchdir: str | None = None, **kwargs):
         """
-        Initialize the GAPCalc.
+        Initialise the GAPCalc.
 
         Args:
             keep_files (str): Files to keep. Defaults to 'default'.
@@ -66,7 +66,7 @@ class MACECalc(WFLFileIOCalculator, MACECalculator):
     def __init__(self, keep_files: str = 'default', rundir_prefix: str = 'run_MACE_', 
                  workdir: str | None = None, scratchdir: str | None = None, **kwargs):
         """
-        Initialize the MACECalc.
+        Initialise the MACECalc.
 
         Args:
             keep_files (str): Files to keep. Defaults to 'default'.
@@ -119,7 +119,7 @@ class ForceCheck(AbortSimBase):
     """
     def __init__(self, threshold: float, n_failed_steps: int = 10):
         """
-        Initialize the ForceCheck abort criteria.
+        Initialise the ForceCheck abort criteria.
 
         Args:
             threshold (float): Force threshold.

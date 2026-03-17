@@ -31,7 +31,7 @@ def find_robust_elbow(distances: List[float], start_idx: int = 20) -> int:
     y_subset = y_full[start_idx:]
     x_subset = np.arange(start_idx, len(y_full))
     
-    # 4. Normalize Data
+    # 4. normalise Data
     x_norm = (x_subset - x_subset.min()) / (x_subset.max() - x_subset.min())
     y_norm = (y_subset - y_subset.min()) / (y_subset.max() - y_subset.min())
     
