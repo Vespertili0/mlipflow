@@ -626,6 +626,41 @@ def run_config_uncertainty_selection(state: EnsembleState) -> EnsembleState:
 
     return {**state, 'configs': [selected_configs]}
 
+
+def run_gmm_relabel(state: EnsembleState) -> EnsembleState:
+    """
+    Run semi-supervised GMM re-labelling on configurations.
+    """
+    logger.info("Running semi-supervised GMM re-labelling...")
+    
+    from mlipflow.data.semi_supervised_gmm import GMMLabelChecker
+
+    if not state.get('configs'):
+        logger.error("No configurations provided in state")
+        raise ValueError("No configurations provided in state")
+        
+    if not state.get('last_training_configs'):
+        logger.error("last_training_configs not found in state")
+        raise ValueError("last_training_configs not found in state")
+
+    gmm_kwargs = state.get('calculation_kwargs', {}).get('gmm_relabel', {}).copy()
+    device = gmm_kwargs.pop('device', 'cpu')
+    
+    checker = GMMLabelChecker(
+        train_file=state['last_training_configs'],
+        pool_file=state['configs'],
+        mlip_strategy=state['mlip_strategy'],
+        device=device,
+        **gmm_kwargs
+    )
+    
+    final_configs, _ = checker.run()
+    
+    out_file = 'relabelled_configs.xyz'
+    OutputSpec(out_file).write(ConfigSet(final_configs))
+    
+    return {**state, 'configs': [out_file]}
+
 #def validate_state(state: EnsembleState, required_keys: list[str]) -> None:
 #    """Validate state contains required keys with non-empty values"""
 #    missing = [key for key in required_keys if not state.get(key)]

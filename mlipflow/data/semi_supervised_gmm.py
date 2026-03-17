@@ -1,10 +1,13 @@
 import logging
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import torch
 from ase import Atoms
+from wfl.configset import ConfigSet
+from wfl.utils.misc import atoms_to_list
 from mace.calculators import MACECalculator
 
+from mlipflow.strategies.mlip import MACEModel
 from mlipflow.data import setup_logging
 from mlipflow.data.gmm import (
     TorchGMM, 
@@ -19,7 +22,7 @@ from mlipflow.data.gmm import (
 setup_logging()
 logger = logging.getLogger(__name__)
 
-class GMMRefiner:
+class GMMLabelChecker:
     """
     Iterative semi-supervised labelling pipeline using MACE descriptors and a
     fixed-K Gaussian Mixture Model.
@@ -41,12 +44,12 @@ class GMMRefiner:
 
     Parameters
     ----------
-    train_configs : list of Atoms
-        Labelled reference configurations; must carry ``atoms.info['species']``.
-    pool_configs : list of Atoms
-        Unlabelled configurations to be scored and labelled.
-    calc : MACECalculator
-        Initialised MACE calculator.
+    train_file : str or list of str
+        Filepath(s) to labelled reference configurations; must carry ``atoms.info['species']``.
+    pool_file : str or list of str
+        Filepath(s) to unlabelled configurations to be scored and labelled.
+    mlip_strategy : MACEModel
+        The `MACEModel` defining the strategy and paths for calculation.
     device : str
         Torch device ('cpu' or 'cuda').
     high_certainty : float
@@ -61,18 +64,19 @@ class GMMRefiner:
 
     def __init__(
         self,
-        train_configs: List[Atoms],
-        pool_configs: List[Atoms],
-        calc: MACECalculator,
+        train_file: Union[str, List[str]],
+        pool_file: Union[str, List[str]],
+        mlip_strategy: MACEModel,
         device: str = 'cpu',
-        high_certainty: float = 0.9,
-        final_certainty: float = 0.8,
+        high_certainty: float = 0.95,
+        final_certainty: float = 0.90,
         pca_threshold: float = 0.95,
         gmm_iters: int = 100,
     ):
-        self.train_configs = train_configs
-        self.pool_configs = pool_configs
-        self.calc = calc
+        self.train_configs = atoms_to_list(ConfigSet(train_file))
+        self.pool_configs = atoms_to_list(ConfigSet(pool_file))
+        self.mlip_strategy = mlip_strategy
+        self.calc = MACECalculator(model_paths=self.mlip_strategy.model_file, device=device)
         self.device = device
         self.high_certainty = high_certainty
         self.final_certainty = final_certainty
@@ -80,9 +84,6 @@ class GMMRefiner:
         self.gmm_iters = gmm_iters
         self.dtype = torch.float32
 
-    # ------------------------------------------------------------------
-    # Step 1
-    # ------------------------------------------------------------------
 
     def _step1_initial_fit(self):
         """
@@ -109,9 +110,6 @@ class GMMRefiner:
             device=self.device
         )
 
-    # ------------------------------------------------------------------
-    # Step 2
-    # ------------------------------------------------------------------
 
     def _step2_first_pass_labelling(self):
         """
@@ -135,9 +133,6 @@ class GMMRefiner:
             f"max={self.pool_certainty_0.max().item():.3f}"
         )
 
-    # ------------------------------------------------------------------
-    # Step 3
-    # ------------------------------------------------------------------
 
     def _step3_high_certainty_filter(self) -> List[int]:
         """
@@ -154,9 +149,6 @@ class GMMRefiner:
         )
         return indices
 
-    # ------------------------------------------------------------------
-    # Step 4
-    # ------------------------------------------------------------------
 
     def _step4_refit(self, high_certainty_idx: List[int]):
         """
@@ -198,9 +190,6 @@ class GMMRefiner:
             device=self.device
         )
 
-    # ------------------------------------------------------------------
-    # Step 5
-    # ------------------------------------------------------------------
 
     def _step5_final_validation(self) -> Tuple[List[Atoms], torch.Tensor]:
         """
@@ -241,9 +230,6 @@ class GMMRefiner:
 
         return selected_configs, pool_certainty_1[keep_idx]
 
-    # ------------------------------------------------------------------
-    # Public entry point
-    # ------------------------------------------------------------------
 
     def run(self) -> Tuple[List[Atoms], torch.Tensor]:
         """
