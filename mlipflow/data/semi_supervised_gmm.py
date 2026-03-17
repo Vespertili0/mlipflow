@@ -73,8 +73,8 @@ class GMMLabelChecker:
         pca_threshold: float = 0.95,
         gmm_iters: int = 100,
     ):
-        self.train_configs = atoms_to_list(ConfigSet(train_file))
-        self.pool_configs = atoms_to_list(ConfigSet(pool_file))
+        self.train_configs = list(ConfigSet(train_file))
+        self.pool_configs = list(ConfigSet(pool_file))
         self.mlip_strategy = mlip_strategy
         self.calc = MACECalculator(model_paths=self.mlip_strategy.model_file, device=device)
         self.device = device

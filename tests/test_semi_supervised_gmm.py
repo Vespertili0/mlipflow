@@ -43,7 +43,4 @@ def test_semi_supervised_gmm_pipeline():
             assert 'gmm_certainty' in config.info
             
     finally:
-        if os.path.exists(train_file):
-            os.remove(train_file)
-        if os.path.exists(pool_file):
-            os.remove(pool_file)
+        pass
