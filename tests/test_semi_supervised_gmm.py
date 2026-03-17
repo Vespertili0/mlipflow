@@ -10,23 +10,9 @@ def test_semi_supervised_gmm_pipeline():
     """Test the 5-step semi-supervised GMM refinement pipeline using GMMRefiner."""
     test_dir = os.path.dirname(os.path.abspath(__file__))
     mlip_model = os.path.join(test_dir, 'data', 'mace_test')
-    test_data = os.path.join(test_dir, 'data', 'test_data.xyz')
-    
-    # Read the data
-    configs = read(test_data, ':')
-    
-    # The pipeline requires 'species' in atoms.info to determine K (number of clusters)
-    # The test data might not have it, so we'll assign a dummy species label.
-    # We assign two species to test multi-component GMM fitting.
-    for i, at in enumerate(configs):
-        at.info['species'] = 'A' if i % 2 == 0 else 'B'
-        
-    # Write modified configs to temporary files for train and pool
-    train_file = os.path.join(test_dir, 'data', 'temp_train.xyz')
-    pool_file = os.path.join(test_dir, 'data', 'temp_pool.xyz')
-    write(train_file, configs[:5])
-    write(pool_file, configs[5:15])
-        
+    train_file = os.path.join(test_dir, 'data', 'test_data.xyz')
+    pool_file = os.path.join(test_dir, 'data', 'test_data_II.xyz')
+          
     # Initialise the MLIP Strategy using the test model 
     strategy = MACEModel(mlip_name=mlip_model)
     
