@@ -54,8 +54,8 @@ class EnsembleState(TypedDict):
     """
     configs: list[str]
     outfile: NotRequired[list[str]]
-    qchem_strategy: QChemStrategy
-    mlip_strategy: MLIPStrategy
+    qchem_strategy: NotRequired[QChemStrategy]
+    mlip_strategy: NotRequired[MLIPStrategy]
     structure_gen_strategy: NotRequired[StructureGenStrategy]
     calculation_kwargs: NotRequired[dict[str, Any]]
     original_configs: NotRequired[list[str]]
