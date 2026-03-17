@@ -9,7 +9,7 @@ from mlipflow.data.semi_supervised_gmm import GMMLabelChecker
 def test_semi_supervised_gmm_pipeline():
     """Test the 5-step semi-supervised GMM refinement pipeline using GMMRefiner."""
     test_dir = os.path.dirname(os.path.abspath(__file__))
-    mlip_model = os.path.join(test_dir, 'data', 'mace_test.model')
+    mlip_model = os.path.join(test_dir, 'data', 'mace_test')
     test_data = os.path.join(test_dir, 'data', 'test_data.xyz')
     
     # Read the data
@@ -28,7 +28,7 @@ def test_semi_supervised_gmm_pipeline():
     write(pool_file, configs[5:15])
         
     # Initialise the MLIP Strategy using the test model 
-    strategy = MACEModel(model_file=mlip_model)
+    strategy = MACEModel(mlip_name=mlip_model)
     
     # Run the pipeline using a subset for train and another for pool.
     # We use a low high_certainty threshold to ensure some configs pass to step 4 (refit).
