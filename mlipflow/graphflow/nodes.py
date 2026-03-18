@@ -654,10 +654,11 @@ def run_gmm_relabel(state: EnsembleState) -> EnsembleState:
         **gmm_kwargs
     )
     
-    final_configs, _ = checker.run()
+    certain_configs, uncertain_configs, _ = checker.run()
     
     out_file = 'relabelled_configs.xyz'
-    OutputSpec(out_file).write(ConfigSet(final_configs))
+    OutputSpec(out_file).write(ConfigSet(certain_configs))
+    OutputSpec('uncertain_configs.xyz').write(ConfigSet(uncertain_configs))
     
     return {**state, 'configs': [out_file]}
 

@@ -1,10 +1,11 @@
 import logging
-from typing import List, Tuple, Union
+from collections import Counter
+from typing import List, Tuple, Union, Optional
 
+import numpy as np
 import torch
 from ase import Atoms
 from wfl.configset import ConfigSet
-from wfl.utils.misc import atoms_to_list
 from mace.calculators import MACECalculator
 
 from mlipflow.strategies.mlip import MACEModel
@@ -50,6 +51,8 @@ class GMMLabelChecker:
         Filepath(s) to unlabelled configurations to be scored and labelled.
     mlip_strategy : MACEModel
         The `MACEModel` defining the strategy and paths for calculation.
+    atom_indices: Optional slice, list, or array to filter atoms 
+                  (e.g., slice(48, None) for atoms[48:]).
     device : str
         Torch device ('cpu' or 'cuda').
     high_certainty : float
@@ -67,16 +70,18 @@ class GMMLabelChecker:
         train_file: Union[str, List[str]],
         pool_file: Union[str, List[str]],
         mlip_strategy: MACEModel,
+        atom_indices: Optional[Union[slice, List[int], np.ndarray]] = None,
         device: str = 'cpu',
-        high_certainty: float = 0.95,
-        final_certainty: float = 0.90,
-        pca_threshold: float = 0.95,
+        high_certainty: float = 0.99,
+        final_certainty: float = 0.95,
+        pca_threshold: float = 0.98,
         gmm_iters: int = 100,
     ):
         self.train_configs = list(ConfigSet(train_file))
         self.pool_configs = list(ConfigSet(pool_file))
         self.mlip_strategy = mlip_strategy
         self.calc = MACECalculator(model_paths=self.mlip_strategy.model_file, device=device)
+        self.atom_indices = atom_indices
         self.device = device
         self.high_certainty = high_certainty
         self.final_certainty = final_certainty
@@ -97,7 +102,7 @@ class GMMLabelChecker:
         self.species_labels = species_labels
 
         self.X_train_padded, X_train_flat = compute_descriptors(
-            self.train_configs, self.calc, self.device, self.dtype
+            self.train_configs, self.calc, self.device, self.dtype, self.atom_indices
         )
         X_train_reduced, self.pca_V_0, self.pca_mean_0, _ = torch_pca_dynamic(
             X_train_flat, threshold=self.pca_threshold
@@ -118,7 +123,7 @@ class GMMLabelChecker:
         """
         logger.info("=== Step 2: First-Pass Labelling ===")
         self.X_pool_padded, _ = compute_descriptors(
-            self.pool_configs, self.calc, self.device, self.dtype
+            self.pool_configs, self.calc, self.device, self.dtype, self.atom_indices
         )
         self.X_pool_proj_0, self.mask_pool_0 = project_with_pca(
             self.X_pool_padded, self.pca_V_0, self.pca_mean_0
@@ -191,23 +196,104 @@ class GMMLabelChecker:
         )
 
 
-    def _step5_final_validation(self) -> Tuple[List[Atoms], torch.Tensor]:
+    def _map_components_to_species(self) -> dict:
         """
-        Step 5 – Final Validation
-        Re-project all pool configs into the new PCA space and re-predict labels
-        with the refitted GMM. Exclude any config where certainty < final_certainty.
+        Maps GMM components to species labels by evaluating training configurations.
+        
+        Returns:
+            dict: Mapping from component index (int) to species label (str).
+        """
+        logger.info("Mapping GMM components to species labels...")
+        
+        # Project training configs into final PCA space
+        X_train_proj, mask_train = project_with_pca(
+            self.X_train_padded, self.pca_V_1, self.pca_mean_1
+        )
+        
+        # Get log posteriors for all training atoms
+        valid_train_proj = X_train_proj[mask_train]
+        log_post = self.gmm_1.posterior_log_probs(valid_train_proj)
+        preds = torch.argmax(log_post, dim=1)
+        
+        # Get true species labels for each training atom
+        # (Assuming all atoms in a structure have the same species label as per extract_species_labels)
+        true_labels = []
+        for i, config in enumerate(self.train_configs):
+            species = config.info['species']
+            num_atoms = len(config)
+            true_labels.extend([species] * num_atoms)
+        
+        # Count occurences of (species, comp) pairs
+        counts = Counter(zip(true_labels, preds.tolist()))
+            
+        # For each species, find the dominant component
+        species_to_comp = {}
+        for species in self.species_labels:
+            max_count = -1
+            best_comp = -1
+            for comp in range(self.K):
+                count = counts.get((species, comp), 0)
+                if count > max_count:
+                    max_count = count
+                    best_comp = comp
+            species_to_comp[species] = best_comp
+            
+        # Reverse mapping: component -> species
+        comp_to_species = {v: k for k, v in species_to_comp.items()}
+        
+        # Handle any components that weren't the "best" for any species
+        # (Though with K fixed to species count, it should be 1-to-1 ideally)
+        for comp in range(self.K):
+            if comp not in comp_to_species:
+                # Fallback to the species that has this component most frequently
+                max_count = -1
+                best_species = "unknown"
+                for species in self.species_labels:
+                    count = counts.get((species, comp), 0)
+                    if count > max_count:
+                        max_count = count
+                        best_species = species
+                comp_to_species[comp] = best_species
+                
+        logger.info(f"Component and species map: {comp_to_species}")
+        return comp_to_species
+
+
+    def _step5_relabel(self) -> Tuple[List[Atoms], List[Atoms], torch.Tensor]:
+        """
+        Step 5 – Relabel
+        Project all pool configs into the new PCA space, re-predict labels,
+        and split into certain (relabeled) and uncertain (labelled as "unknown") configs.
 
         Returns:
-            Tuple of (selected_configs, final_certainty_scores).
+            Tuple of (certain_configs, uncertain_configs, final_certainty_scores).
         """
-        logger.info(f"=== Step 5: Final Validation (threshold={self.final_certainty}) ===")
+        logger.info(f"=== Step 5: Relabel (threshold={self.final_certainty}) ===")
 
+        # Get component -> species mapping
+        comp_to_species = self._map_components_to_species()
+
+        # Project and evaluate certainty
         X_pool_proj_1, mask_pool_1 = project_with_pca(
             self.X_pool_padded, self.pca_V_1, self.pca_mean_1
         )
         pool_certainty_1 = evaluate_structure_cluster_probability(
             self.gmm_1, self.X_pool_padded, self.pca_V_1, self.pca_mean_1
         )
+        
+        # Predict components for all pool atoms
+        valid_pool_proj = X_pool_proj_1[mask_pool_1]
+        log_post_pool = self.gmm_1.posterior_log_probs(valid_pool_proj)
+        atom_preds = torch.argmax(log_post_pool, dim=1)
+        
+        # Reconstruct structure-level predictions (majority vote over atoms)
+        num_atoms_list = mask_pool_1.sum(dim=1).int().tolist()
+        split_preds = torch.split(atom_preds, num_atoms_list)
+        struct_preds = [
+            torch.mode(chunk).values.item() if len(chunk) > 0 else -1 
+            for chunk in split_preds
+        ]
+
         logger.info(
             f"Pool certainty (final): "
             f"min={pool_certainty_1.min().item():.3f}  "
@@ -215,38 +301,53 @@ class GMMLabelChecker:
             f"max={pool_certainty_1.max().item():.3f}"
         )
 
-        keep_mask = pool_certainty_1 >= self.final_certainty
-        keep_idx = torch.where(keep_mask)[0].tolist()
-        excluded = len(self.pool_configs) - len(keep_idx)
+        certain_configs = []
+        uncertain_configs = []
+        
+        for config, comp, certainty in zip(self.pool_configs, struct_preds, pool_certainty_1.tolist()):
+            # Attach certainty score
+            config.info['gmm_certainty'] = certainty
+            
+            if certainty >= self.final_certainty:
+                config.info['species'] = comp_to_species.get(comp, "unknown")
+                certain_configs.append(config)
+            else:
+                config.info['species'] = "unknown"
+                uncertain_configs.append(config)
+
         logger.info(
-            f"Excluded {excluded} configs below final certainty {self.final_certainty}. "
-            f"Retaining {len(keep_idx)} configs."
+            f"Relabeling complete. "
+            f"Retained {len(certain_configs)} certain configs, "
+            f"{len(uncertain_configs)} uncertain configs (labelled 'unknown')."
         )
+        
+        # Log distribution of assigned labels
+        label_counts = Counter(config.info.get('species', 'missing') for config in self.pool_configs)
+        logger.info(f"Assigned species distribution: {dict(label_counts)}")
 
-        selected_configs = [self.pool_configs[i] for i in keep_idx]
-        # Attach certainty score to each selected config's info dict
-        for config, idx in zip(selected_configs, keep_idx):
-            config.info['gmm_certainty'] = pool_certainty_1[idx].item()
-
-        return selected_configs, pool_certainty_1[keep_idx]
+        return certain_configs, uncertain_configs, pool_certainty_1
 
 
-    def run(self) -> Tuple[List[Atoms], torch.Tensor]:
+    def run(self) -> Tuple[List[Atoms], List[Atoms], torch.Tensor]:
         """
         Execute the full semi-supervised refinement pipeline.
 
         Returns:
-            Tuple ``(final_configs, certainty_scores)`` where:
-            - ``final_configs`` is the list of selected pool Atoms objects, each
-              annotated with ``atoms.info['gmm_certainty']``.
-            - ``certainty_scores`` is a 1-D tensor of corresponding certainty values.
+            Tuple ``(certain_configs, uncertain_configs, certainty_scores)`` where:
+            - ``certain_configs`` is the list of high-certainty pool Atoms objects,
+              re-labelled with GMM-predicted species.
+            - ``uncertain_configs`` is the list of low-certainty pool Atoms objects,
+              labelled with ``species='unknown'``.
+            - ``certainty_scores`` is a 1-D tensor of final certainty values for all pool configs.
         """
         self._step1_initial_fit()
         self._step2_first_pass_labelling()
         high_certainty_idx = self._step3_high_certainty_filter()
         self._step4_refit(high_certainty_idx)
-        final_configs, certainty_scores = self._step5_final_validation()
+        certain_configs, uncertain_configs, certainty_scores = self._step5_relabel()
+        
         logger.info(
-            f"Pipeline complete. {len(final_configs)} configurations selected."
+            f"Pipeline complete. {len(certain_configs)} certain and "
+            f"{len(uncertain_configs)} uncertain configurations."
         )
-        return final_configs, certainty_scores
+        return certain_configs, uncertain_configs, certainty_scores

@@ -1,6 +1,7 @@
 import math, logging
 import torch
-from typing import Tuple, List, Optional
+import numpy as np
+from typing import Tuple, List, Union, Optional
 from mlipflow.utils import find_robust_elbow
 from mlipflow.data import setup_logging
 
@@ -266,41 +267,44 @@ def compute_descriptors(
     calc: "mace.calculators.MACECalculator",
     device: str,
     dtype: torch.dtype,
+    atom_indices: Optional[Union[slice, List[int], np.ndarray]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Computes per-atom MACE descriptors and returns them in two forms:
-    1. Padded 3-D tensor ``(N_configs, A_max, D)``
-    2. Flat 2-D tensor   ``(N_total_atoms, D)``
-
+    Computes per-atom MACE descriptors and returns them in two forms.
+    
     Args:
         configs: List of ASE Atoms objects.
         calc:    Initialised MACECalculator.
         device:  Torch device string.
         dtype:   Torch dtype.
-
-    Returns:
-        Tuple of (X_padded, X_flat).
+        atom_indices: Optional slice, list, or array to filter atoms 
+                      (e.g., slice(48, None) for atoms[48:]).
     """
-    # Handle the case where configs is an iterator or generator like ConfigSet
-    # so we can use len() safely later.
     if not isinstance(configs, list):
         configs = list(configs)
 
+    logger.info(f"Computing descriptors for {len(configs)} configurations...")
+    # Default to a slice that includes everything if nothing is provided
+    if atom_indices is None:
+        atom_indices = slice(None)
+
+    # Slice the numpy array BEFORE tensor conversion and device transfer
     raw = [
-        torch.from_numpy(calc.get_descriptors(at)).to(device=device, dtype=dtype)
+        torch.from_numpy(calc.get_descriptors(at)[atom_indices]).to(device=device, dtype=dtype)
         for at in configs
     ]
+    
     A_max = max(t.shape[0] for t in raw)
     D = raw[0].shape[1]
 
-    # Build padded tensor
+    # 1. Build flat tensor directly
+    X_flat = torch.cat(raw, dim=0)
+
+    # 2. Build padded tensor
+    logger.info(f"Building padded tensor with shape ({len(configs)}, {A_max}, {D})...")
     X_padded = torch.zeros(len(configs), A_max, D, device=device, dtype=dtype)
     for i, t in enumerate(raw):
         X_padded[i, : t.shape[0], :] = t
-
-    # Flat tensor: only real (non-zero) atoms
-    mask = torch.any(X_padded != 0, dim=-1)
-    X_flat = X_padded[mask]
 
     return X_padded, X_flat
 
@@ -321,6 +325,8 @@ def project_with_pca(
     Returns:
         Tuple ``(X_proj_padded, mask)``.
     """
+    logger.info(f"Projecting descriptors into PCA space...")
+
     mask = torch.any(X_padded != 0, dim=-1)
     valid = X_padded[mask]
     centred = valid - pca_mean
@@ -356,6 +362,7 @@ def evaluate_structure_metric(
     Returns:
         torch.Tensor: 1D tensor of shape (N_structures,) containing the structure-level score.
     """
+    logger.info(f"Evaluating structure-level GMM metrics using {metric}...")
     device = X_padded.device
     dtype = X_padded.dtype
     

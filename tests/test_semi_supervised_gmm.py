@@ -31,16 +31,22 @@ def test_semi_supervised_gmm_pipeline():
         )
 
         
-        final_configs, certainty_scores = pipeline.run()
+        certain_configs, uncertain_configs, certainty_scores = pipeline.run()
         
         # Check that it returns the expected types
-        assert isinstance(final_configs, list)
-        assert len(final_configs) > 0
-        assert len(final_configs) == len(certainty_scores)
+        assert isinstance(certain_configs, list)
+        assert isinstance(uncertain_configs, list)
+        assert (len(certain_configs) + len(uncertain_configs)) > 0
+        assert (len(certain_configs) + len(uncertain_configs)) == len(certainty_scores)
         
-        # Check that the retained configs have the new annotation
-        for config in final_configs:
+        # Check that the retained configs have the new annotation and correct labels
+        for config in certain_configs:
             assert 'gmm_certainty' in config.info
+            assert config.info['species'] != 'unknown'
+
+        for config in uncertain_configs:
+            assert 'gmm_certainty' in config.info
+            assert config.info['species'] == 'unknown'
             
     finally:
         pass
