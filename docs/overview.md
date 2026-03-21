@@ -1,37 +1,51 @@
+---
+title: Overview
+layout: default
+---
+
 # Overview
 
-`mlipflow` provides a structured approach to exploring reaction pathways using Machine-Learned Interatomic Potentials (MLIPs). The core of the package is an active learning workflow orchestrated by a graph-based engine.
+## Purpose
 
-## Graph-Based Workflow
+The primary goal of `mlipflow` is to accelerate catalysis research by automating the discovery and refinement of reaction pathways. By leveraging Machine-Learned Interatomic Potentials (MLIPs), it allows for efficient exploration of the Potential Energy Surface (PES) while maintaining high accuracy through an active learning loop integrated with Density Functional Theory (DFT) calculations.
 
-The central component of `mlipflow` is the **Active Learning Flow**, implemented using `LangGraph`. This workflow manages the cyclic process of generating structures, validating them with DFT, and retraining the MLIP model.
+### 🚩 The Catalyst Research Bottleneck
 
-The `ActiveLearningFlow` consists of the following key nodes:
+1.  **Cost-Accuracy Trade-off**: DFT is accurate but slow.
+2.  **Human Selection Bias**: Manual pathway selection can miss critical low-energy configurations.
+3.  **Complexity**: High-dimensional reaction coordinates are difficult to explore manually.
 
-1.  **`generate_new_structures`**: Uses the current MLIP model to generate new candidate structures (e.g., via Molecular Dynamics or NEB).
-2.  **`calculate_dft_level`**: Selects a subset of the generated structures and performs high-accuracy DFT calculations to obtain ground-truth energies and forces.
-3.  **`train_new_mlip_model`**: Retrains the MLIP model using the newly acquired DFT data, improving its accuracy for the next iteration.
+## 🏗️ Architecture
 
-This loop continues until a stopping criterion is met (e.g., model convergence or maximum iterations).
+`mlipflow` follows a modular, object-oriented design built on top of **ASE (Atomic Simulation Environment)**, **wfl (Workflow Library)**, and **LangGraph**.
 
-## Structure Generation Strategies
+### Core Components
 
-`mlipflow` offers several strategies for generating new structures, all inheriting from `StructureGenStrategy`. These are located in `mlipflow.strategies.structure_generators`.
+-   **DataManager**: Handles file system organisation and iteration-based data storage.
+-   **ActiveLearner**: Orchestrates the active learning loop (Generate -> Compute -> Train).
+-   **Strategies**: Abstract interfaces for different calculation backends:
+    -   `StructureGenStrategy`: Methods for generating new configurations (MD, OPT, NEB).
+    -   `MLIPStrategy`: Support for various MLIP models (GAP, MACE).
+    -   `QChemStrategy`: Integration with DFT codes (Quantum Espresso).
+-   **GraphFlow**: Defines the workflow nodes and state management using LangGraph for complex, non-linear workflows.
 
-*   **`MDGen` (Molecular Dynamics)**: Runs MD simulations using the MLIP to explore the phase space. Useful for sampling diverse configurations.
-*   **`OPTGen` (Geometry Optimization)**: Relaxes structures to their local minima. Useful for finding stable intermediates.
-*   **`NEBGen` (Nudged Elastic Band)**: Performs NEB calculations to find transition states between reactant and product pairs. This is critical for pathway exploration.
+### Workflow Diagram
 
-## MLIP Strategies
+```mermaid
+graph TD
+    A[Initial Structures] --> B[MLIP Structure Generation]
+    B --> C[Uncertainty/Diversity Selection]
+    C --> D[DFT Single-Point Calculations]
+    D --> E[MLIP Model Training/Refinement]
+    E --> F{Completion Criteria Met?}
+    F -- No --> B
+    F -- Yes --> G[Final Refined Path]
+```
 
-The package supports different Machine Learning Potential architectures via `MLIPStrategy`, located in `mlipflow.strategies.mlip`.
+## ✨ Key Features
 
-*   **`MACEModel`**: Interface for the **MACE** (Multi-ACE) architecture. It supports running MACE models locally or remotely and includes optional DFT-D3 dispersion corrections.
-*   **`GAPModel`**: Interface for the **GAP** (Gaussian Approximation Potential) framework. It supports multistage fitting (e.g., 2-body + SOAP).
-
-## DFT Strategies
-
-For the "ground truth" calculations, `mlipflow` uses `QChemStrategy`, located in `mlipflow.strategies.dft`.
-
-*   **`QECalculator`**: Interface for **Quantum Espresso**. It handles input file generation, pseudopotentials, and remote job submission for SCF and relaxation calculations.
-*   **`EMTCalc`**: A fast, approximate calculator (Effective Medium Theory) used primarily for testing and debugging workflows without the cost of full DFT.
+-   **Modular Design**: Easily swap out MLIP models, DFT calculators, or generation strategies.
+-   **Scalability**: Built for HPC environments with seamless integration via `wfl`.
+-   **Active Learning**: Intelligent selection of new configurations to label, minimising expensive DFT calls.
+-   **Advanced Sampling**: Supports Metadynamics, NVT/NPT MD, and NEB-based exploration.
+-   **GMM Selection**: Uses Gaussian Mixture Models (GMM) for uncertainty-based configuration selection.

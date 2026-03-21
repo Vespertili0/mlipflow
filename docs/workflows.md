@@ -7,9 +7,9 @@
 The `execute_initial_basin_pathsampling_md_block` workflow is designed for the initial exploration of potential energy surfaces. It performs the following steps:
 
 1.  **Apply Basin Constraints**: Applies geometric constraints to the input structures (e.g., fixing atoms).
-2.  **Basin MD**: Runs Molecular Dynamics (MD) or Geometry Optimization within the defined basins to generate diverse local structures.
+2.  **Basin MD**: Runs Molecular Dynamics (MD) or Geometry Optimisation within the defined basins to generate diverse local structures.
 3.  **Generate NEB Pairs**: Automatically pairs structures to form Nudged Elastic Band (NEB) pathways.
-4.  **Path Sampling MD**: Runs MD/Optimization on the generated NEB images to sample the reaction pathways.
+4.  **Path Sampling MD**: Runs MD/Optimisation on the generated NEB images to sample the reaction pathways.
 5.  **Single Point Calculations**: Performs single-point calculations (MLIP or DFT) on the generated structures to evaluate their energies and forces.
 
 ### Usage
