@@ -35,7 +35,7 @@ initial_state = {
     "configs": ["initial_structure.xyz"],
     "mlip_strategy": mlip,
     "qchem_strategy": dft,
-    "iteration": 0
+    "iteration": 0,
 }
 
 # Run the active learning loop

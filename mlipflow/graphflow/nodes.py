@@ -3,9 +3,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Optional, TypedDict
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, TypedDict
 
-from ase import Atoms
 from typing_extensions import NotRequired
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.map import map as wfl_map
@@ -13,23 +13,29 @@ from wfl.map import map as wfl_map
 from mlipflow.core.neb_pairing import create_neb_pairs
 from mlipflow.core.single_point import run_chunked_qe_sp, run_single_point
 from mlipflow.data import clean_up, setup_logging
+from mlipflow.data.labeller import relabel_configs
 from mlipflow.data.processing import clean_configset_data, update_configset_tag
 from mlipflow.data.selection import (
     select_by_uncertainty,
     split_configset_by_force_agreement,
 )
 from mlipflow.data.selector import ConfigurationSelector
-from mlipflow.strategies.dft import QChemStrategy
-from mlipflow.strategies.mlip import MLIPStrategy
 from mlipflow.strategies.structure_generators import MDGen, NEBGen, StructureGenStrategy
+
+if TYPE_CHECKING:
+    from ase import Atoms
+
+    from mlipflow.strategies.dft import QChemStrategy
+    from mlipflow.strategies.mlip import MLIPStrategy
 
 setup_logging()
 logger = logging.getLogger(__name__)
 #####################################################
 
+
 class EnsembleState(TypedDict):
     """
-    State dictionary for the DFT-MACE fitting workflow    
+    State dictionary for the DFT-MACE fitting workflow
     Attributes:
         configs (list[str]): List of configuration file paths
         outfile (NotRequired[list[str]]): Optional output file paths
@@ -55,6 +61,7 @@ class EnsembleState(TypedDict):
                 - 'n_optimal': optimal number of configs (optional)
                 - 'n_max': max configs for optimal N search (optional)
     """
+
     configs: list[str]
     outfile: NotRequired[list[str]]
     qchem_strategy: NotRequired[QChemStrategy]
@@ -68,14 +75,15 @@ class EnsembleState(TypedDict):
 @dataclass
 class WorkflowError(Exception):
     """Base exception for workflow errors"""
+
     message: str
-    state: Optional[EnsembleState] = None
+    state: EnsembleState | None = None
 
 
 def _apply_static_constraints(at: Atoms, constraints: list[Any]) -> Atoms:
     """
     Applies a list of ASE constraints to the Atoms object.
-    
+
     Parameters
     ----------
     at : Atoms
@@ -120,18 +128,22 @@ def switch_to_neb_generation(state: EnsembleState) -> EnsembleState:
     neb_params = calc_kwargs.get("neb__structure_gen_params", {})
     new_strategy = NEBGen(params=neb_params)
 
-    return {**state, "structure_gen_strategy": new_strategy, "calculation_kwargs": calc_kwargs}
+    return {
+        **state,
+        "structure_gen_strategy": new_strategy,
+        "calculation_kwargs": calc_kwargs,
+    }
 
 
 def run_dft_sp(state: EnsembleState) -> EnsembleState:
     """Run DFT single-point calculations on configurations.
-    
+
     Args:
         state (EnsembleState): Current workflow state
-        
+
     Returns:
         EnsembleState: Updated workflow state
-        
+
     Raises:
         KeyError: If required state keys are missing
         ValueError: If configs list is empty
@@ -153,15 +165,14 @@ def run_dft_sp(state: EnsembleState) -> EnsembleState:
             out_file=outfile,
             output_prefix=state["qchem_strategy"].qe_prefix,
             calculator=state["qchem_strategy"].get_calculator(
-                job_name="QE_",
-                **dft_kwargs
+                job_name="QE_", **dft_kwargs
             ),
-            remote_info=state["qchem_strategy"].remote_info
+            remote_info=state["qchem_strategy"].remote_info,
         )
         logger.debug("DFT calculations completed successfully")
     except Exception as e:
         logger.error(f"DFT calculation failed: {e!s}")
-        raise RuntimeError(f"DFT calculation failed: {e!s}")
+        raise RuntimeError(f"DFT calculation failed: {e!s}") from e
     finally:
         logger.debug("Cleaning up DFT calculation files")
         clean_up()
@@ -172,13 +183,13 @@ def run_dft_sp(state: EnsembleState) -> EnsembleState:
 
 def run_dft_sp_block(state: EnsembleState) -> EnsembleState:
     """Run chunked DFT single-point calculations on configurations.
-    
+
     Args:
         state (EnsembleState): Current workflow state
-        
+
     Returns:
         EnsembleState: Updated workflow state
-        
+
     Raises:
         KeyError: If required state keys are missing
         ValueError: If configs list is empty
@@ -203,20 +214,22 @@ def run_dft_sp_block(state: EnsembleState) -> EnsembleState:
             in_file=configs,
             out_file=outfile,
             qchem_strategy=state["qchem_strategy"],
-            kpts=dft_kwargs.get("kpts", (3,3,1)),
+            kpts=dft_kwargs.get("kpts", (3, 3, 1)),
             dipole=dft_kwargs.get("dipole", False),
             dftd3=dft_kwargs.get("dftd3", False),
             ecut_eV=dft_kwargs.get("ecut_eV", 450),
             chunk_size=dft_kwargs.get("chunk_size", 50),
             max_time=dft_kwargs.get("max_time", "01:30:00"),
             job_name=dft_kwargs.get("job_name", "QE_"),
-            keep_info_keys=dft_kwargs.get("keep_info_keys", ["DFT_energy", "slab", "species"]),
-            num_inputs_per_queued_job=dft_kwargs.get("num_inputs_per_queued_job", 1)
-            )
+            keep_info_keys=dft_kwargs.get(
+                "keep_info_keys", ["DFT_energy", "slab", "species"]
+            ),
+            num_inputs_per_queued_job=dft_kwargs.get("num_inputs_per_queued_job", 1),
+        )
         logger.debug("DFT calculations completed successfully")
     except Exception as e:
         logger.error(f"DFT calculation failed: {e!s}")
-        raise RuntimeError(f"DFT calculation failed: {e!s}")
+        raise RuntimeError(f"DFT calculation failed: {e!s}") from e
     finally:
         _log_config_counts(ConfigSet(outfile), msg="after chunked DFT-SP")
 
@@ -225,7 +238,7 @@ def run_dft_sp_block(state: EnsembleState) -> EnsembleState:
 
 def run_mlip_sp(state: EnsembleState) -> EnsembleState:
     """Run MLIP single-point calculations on configurations.
-    
+
     Args:
         state (EnsembleState): Current workflow state
     Returns:
@@ -264,14 +277,14 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
                 dispersion=dispersion,
                 num_inputs_per_queued_job=num_inputs,
                 max_time=max_time,
-                **mlip_kwargs
-                ),
-            remote_info=mlip.remote_info
+                **mlip_kwargs,
+            ),
+            remote_info=mlip.remote_info,
         )
         logger.debug("MLIP calculations completed successfully")
     except Exception as e:
         logger.error(f"MLIP calculation failed: {e!s}")
-        raise RuntimeError(f"MLIP calculation failed: {e!s}")
+        raise RuntimeError(f"MLIP calculation failed: {e!s}") from e
     finally:
         logger.debug("Cleaning up MLIP calculation files")
         clean_up()
@@ -281,16 +294,19 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
 
 
 def assess_n_select(state: EnsembleState) -> EnsembleState:
-    main_suffix="train"
-    side_suffix="test"
+    main_suffix = "train"
+    side_suffix = "test"
 
     configs = state["configs"]
     split_configset_by_force_agreement(
         in_file=configs,
         out_file="dft.xyz",
-        pair_tuple=(state["qchem_strategy"].qe_prefix, state["mlip_strategy"].mlip_prefix),
+        pair_tuple=(
+            state["qchem_strategy"].qe_prefix,
+            state["mlip_strategy"].mlip_prefix,
+        ),
         main_suffix=main_suffix,
-        side_suffix=side_suffix
+        side_suffix=side_suffix,
     )
     train_data = [f"{main_suffix}_dft.xyz"]
     test_data = [f"{side_suffix}_dft.xyz"]
@@ -303,10 +319,7 @@ def run_mace_fit(state: EnsembleState) -> EnsembleState:
     test_configs = state["outfile"]
 
     state["mlip_strategy"].fit_new_model(
-        in_file=configs,
-        test_configs=test_configs,
-        seed=123,
-        restart=False
+        in_file=configs, test_configs=test_configs, seed=123, restart=False
     )
     return {**state, "outfile": None}
 
@@ -314,8 +327,8 @@ def run_mace_fit(state: EnsembleState) -> EnsembleState:
 def _run_structure_generation_logic(
     state: EnsembleState,
     configs: Any,
-    mlip_gen_kwargs_override: Optional[dict] = None,
-    structure_gen_params_override: Optional[dict] = None
+    mlip_gen_kwargs_override: dict | None = None,
+    structure_gen_params_override: dict | None = None,
 ) -> EnsembleState:
     """
     Internal helper to run structure generation logic on specific configs.
@@ -338,11 +351,7 @@ def _run_structure_generation_logic(
         mlip_kwargs = {**mlip_kwargs, **mlip_gen_kwargs_override}
 
     # Determine the property prefix based on the strategy type
-    prefix_map = {
-        "md": "md",
-        "opt": "optimize",
-        "neb": "neb"
-    }
+    prefix_map = {"md": "md", "opt": "optimize", "neb": "neb"}
 
     mlip = state["mlip_strategy"]
     structure_generator = state["structure_gen_strategy"]
@@ -391,13 +400,16 @@ def _run_structure_generation_logic(
 
     current_files = state["configs"]
     outfile = [
-        xyz.replace(".xyz", f"_{structure_generator.calc_prefix}.xyz") for xyz in current_files
+        xyz.replace(".xyz", f"_{structure_generator.calc_prefix}.xyz")
+        for xyz in current_files
     ]
 
     # Handle case where input is list of Atoms (e.g. from NEB generation) but outfile is list of files.
     # We merge all outputs to the first file in the list.
     output_arg = outfile
-    is_atoms_input = isinstance(configs, list) and (len(configs) == 0 or not isinstance(configs[0], str))
+    is_atoms_input = isinstance(configs, list) and (
+        len(configs) == 0 or not isinstance(configs[0], str)
+    )
 
     if is_atoms_input and isinstance(outfile, list) and len(outfile) > 0:
         output_arg = outfile[0]
@@ -408,31 +420,31 @@ def _run_structure_generation_logic(
     # But here we probably want fresh files for this step.
     # We rely on wfl/ase write modes.
 
-
     try:
-        logger.info(f"Generating new structures using {structure_generator.__class__.__name__}")
+        logger.info(
+            f"Generating new structures using {structure_generator.__class__.__name__}"
+        )
         logger.debug(f"MLIP run settings: {mlip_kwargs}")
         logger.debug(f"StructureGen parameters: {sg_params}")
 
         structure_generator.generate_new_structures(
             in_file=configs,
             out_file=output_arg,
-            calculator=mlip.get_calculator(
-                job_name="mSG_",
-                **mlip_kwargs
-                ),
-            remote_info=mlip.remote_info
+            calculator=mlip.get_calculator(job_name="mSG_", **mlip_kwargs),
+            remote_info=mlip.remote_info,
         )
-        tag_dict={
-            "info":{energy_key: f"{mlip.mlip_prefix}energy"},
-            "array":{force_key: f"{mlip.mlip_prefix}forces"}
+        tag_dict = {
+            "info": {energy_key: f"{mlip.mlip_prefix}energy"},
+            "array": {force_key: f"{mlip.mlip_prefix}forces"},
         }
         for tag_type, tags in tag_dict.items():
             for xyz in outfile:
-                update_configset_tag(in_config=xyz, out_file=xyz, tag_dict=tags, tag_type=tag_type)
+                update_configset_tag(
+                    in_config=xyz, out_file=xyz, tag_dict=tags, tag_type=tag_type
+                )
     except Exception as e:
         logger.error(f"Structure generation failed: {e!s}")
-        raise RuntimeError(f"Structure generation failed: {e!s}")
+        raise RuntimeError(f"Structure generation failed: {e!s}") from e
     finally:
         logger.debug("Cleaning up structure generation files")
         clean_up()
@@ -464,7 +476,9 @@ def run_apply_basin_constraints(state: EnsembleState) -> EnsembleState:
     sampling_kwargs = state.get("calculation_kwargs", {}).get("initial_sampling", {})
     basin_constraints = sampling_kwargs.get("basin_constraints", [])
 
-    logger.info(f"Applying {len(basin_constraints)} basin constraints and running generation")
+    logger.info(
+        f"Applying {len(basin_constraints)} basin constraints and running generation"
+    )
 
     map_func = partial(_apply_static_constraints, constraints=basin_constraints)
 
@@ -472,20 +486,22 @@ def run_apply_basin_constraints(state: EnsembleState) -> EnsembleState:
     # We use ConfigSet to read, apply map_func to get iterator of constrained atoms
     constrained_inputs = wfl_map(
         inputs=ConfigSet(state["configs"]),
-        outputs=OutputSpec(), # No output file, returns iterable/ConfigSet-like
-        map_func=map_func
+        outputs=OutputSpec(),  # No output file, returns iterable/ConfigSet-like
+        map_func=map_func,
     )
 
     # Check for override kwargs
     basin_mlip_gen = sampling_kwargs.get("basin__mlip_gen", None)
-    basin_structure_gen_params = sampling_kwargs.get("basin__structure_gen_params", None)
+    basin_structure_gen_params = sampling_kwargs.get(
+        "basin__structure_gen_params", None
+    )
 
     # Pass directly to generation logic
     return _run_structure_generation_logic(
         state=state,
         configs=constrained_inputs,
         mlip_gen_kwargs_override=basin_mlip_gen,
-        structure_gen_params_override=basin_structure_gen_params
+        structure_gen_params_override=basin_structure_gen_params,
     )
 
 
@@ -503,19 +519,29 @@ def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
 
     # Check for override kwargs
     if isinstance(state["structure_gen_strategy"], MDGen):
-        logger.info("Structure generation strategy is MD on NEB pairs - initial sampling")
-        sampling_kwargs = state.get("calculation_kwargs", {}).get("initial_sampling", {})
+        logger.info(
+            "Structure generation strategy is MD on NEB pairs - initial sampling"
+        )
+        sampling_kwargs = state.get("calculation_kwargs", {}).get(
+            "initial_sampling", {}
+        )
         neb_config = sampling_kwargs.get("neb_config", {})
         neb_mlip_gen = sampling_kwargs.get("neb__mlip_gen", None)
-        neb_structure_gen_params = sampling_kwargs.get("neb__structure_gen_params", None)
+        neb_structure_gen_params = sampling_kwargs.get(
+            "neb__structure_gen_params", None
+        )
 
     elif isinstance(state["structure_gen_strategy"], NEBGen):
         logger.info("Structure generation strategy is NEB")
         neb_config = state.get("calculation_kwargs", {}).get("neb_config", {})
 
     if not neb_config or "rxn_constraints_dict" not in neb_config:
-        logger.error("neb_config with 'rxn_constraints_dict' is required for NEB pair generation.")
-        raise ValueError("neb_config with 'rxn_constraints_dict' is required for NEB pair generation.")
+        logger.error(
+            "neb_config with 'rxn_constraints_dict' is required for NEB pair generation."
+        )
+        raise ValueError(
+            "neb_config with 'rxn_constraints_dict' is required for NEB pair generation."
+        )
 
     # Capture the input configs (from Basin MD) to merge later
     original_configs = state["configs"]
@@ -525,34 +551,34 @@ def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
     for config_file in state["configs"]:
         # Clean data first
         cleaned_file = config_file.replace(".xyz", ".cleaned.xyz")
-        clean_configset_data(ConfigSet(config_file), OutputSpec(cleaned_file, overwrite=True))
-
-        results = create_neb_pairs(
-            xyz_file=cleaned_file,
-            **neb_config
+        clean_configset_data(
+            ConfigSet(config_file), OutputSpec(cleaned_file, overwrite=True)
         )
+
+        results = create_neb_pairs(xyz_file=cleaned_file, **neb_config)
 
         # Flatten results (list of lists of Atoms/ConfigSets)
         for res in results:
             all_prepared_configs.extend(list(ConfigSet(res)))
 
         # cleanup clean file
-        import os
-        if os.path.exists(cleaned_file):
-            os.remove(cleaned_file)
-
-
+        if Path(cleaned_file).exists():
+            Path(cleaned_file).unlink()
 
     # Pass flattened list of prepared atoms to generation logic
     gen_result = _run_structure_generation_logic(
         state=state,
         configs=all_prepared_configs,
         mlip_gen_kwargs_override=neb_mlip_gen,
-        structure_gen_params_override=neb_structure_gen_params
+        structure_gen_params_override=neb_structure_gen_params,
     )
 
     # Update state: configs now contains ALL generated structures (Basin + NEB) so MLIP SP runs on everything
-    return {**state, "configs": gen_result["configs"], "original_configs": original_configs}
+    return {
+        **state,
+        "configs": gen_result["configs"],
+        "original_configs": original_configs,
+    }
 
 
 def run_config_fps_selection(state: EnsembleState) -> EnsembleState:
@@ -570,7 +596,9 @@ def run_config_fps_selection(state: EnsembleState) -> EnsembleState:
 
     # Required parameters check
     if "descriptor_string" not in selection_kwargs:
-        raise ValueError("selection kwargs must contain 'descriptor_string' for descriptor calculation.")
+        raise ValueError(
+            "selection kwargs must contain 'descriptor_string' for descriptor calculation."
+        )
 
     # Defaults
     desc_key = selection_kwargs.get("descriptor_key", "SOAP")
@@ -578,19 +606,24 @@ def run_config_fps_selection(state: EnsembleState) -> EnsembleState:
     seed = selection_kwargs.get("seed", 10)
 
     logger.info("Initializing ConfigurationSelector")
-    selector = ConfigurationSelector(inputs=state["configs"], output_prefix=output_prefix, seed=seed)
+    selector = ConfigurationSelector(
+        inputs=state["configs"], output_prefix=output_prefix, seed=seed
+    )
 
     logger.info("Calculating global descriptors")
     selector.calculate_global_descriptors(
-        descs=[selection_kwargs["descriptor_string"]],
-        key=desc_key
+        descs=[selection_kwargs["descriptor_string"]], key=desc_key
     )
 
     # Extract kwargs for run_two_stage_selection
-    run_kwargs = {k: v for k, v in selection_kwargs.items() if k not in ["descriptor_string", "descriptor_key", "seed"]}
+    run_kwargs = {
+        k: v
+        for k, v in selection_kwargs.items()
+        if k not in ["descriptor_string", "descriptor_key", "seed"]
+    }
 
     logger.info("Running two-stage selection")
-    selected_configs = selector.run_two_stage_selection(**run_kwargs)
+    _selected_configs = selector.run_two_stage_selection(**run_kwargs)
 
     # The selector returns ConfigSets/lists of atoms.
     # We need to flatten them and make them accessible for the next step.
@@ -608,8 +641,7 @@ def run_config_fps_selection(state: EnsembleState) -> EnsembleState:
 
 
 def run_config_uncertainty_selection(state: EnsembleState) -> EnsembleState:
-    """
-    """
+    """ """
     logger.info("Running uncertainty-based configuration selection...")
 
     selected_configs = "selected_configs.xyz"
@@ -619,18 +651,18 @@ def run_config_uncertainty_selection(state: EnsembleState) -> EnsembleState:
         pool_file=state["configs"],
         out_file=selected_configs,
         mlip_strategy=state["mlip_strategy"],
-        #certainty_threshold=state['calculation_kwargs']['selection']['certainty_threshold'],
-        #pca_variance_threshold: float = 0.95,
-        #max_gmm_components: int = 30,
-        #gmm_n_init: int = 5,
-        #device: str = 'cpu',
-        #dtype: "torch.dtype" = None,
+        # certainty_threshold=state['calculation_kwargs']['selection']['certainty_threshold'],
+        # pca_variance_threshold: float = 0.95,
+        # max_gmm_components: int = 30,
+        # gmm_n_init: int = 5,
+        # device: str = 'cpu',
+        # dtype: "torch.dtype" = None,
     )
 
     return {**state, "configs": [selected_configs]}
 
 
-#def run_gmm_relabel(state: EnsembleState) -> EnsembleState:
+# def run_gmm_relabel(state: EnsembleState) -> EnsembleState:
 #    """
 #    Run semi-supervised GMM re-labelling on configurations.
 #    """
@@ -672,8 +704,6 @@ def run_topology_relabel(state: EnsembleState) -> EnsembleState:
     """
     logger.info("Running topology-based re-labelling...")
 
-    from mlipflow.data.labeller import relabel_configs
-
     if not state.get("configs"):
         logger.error("No configurations provided in state")
         raise ValueError("No configurations provided in state")
@@ -684,8 +714,7 @@ def run_topology_relabel(state: EnsembleState) -> EnsembleState:
         raise ValueError("reference_configs not found in gcml_kwargs")
 
     known_configs, unknown_configs = relabel_configs(
-        in_file=state["configs"],
-        **gcml_kwargs
+        in_file=state["configs"], **gcml_kwargs
     )
 
     out_file = "known_configs.xyz"
@@ -694,14 +723,15 @@ def run_topology_relabel(state: EnsembleState) -> EnsembleState:
 
     return {**state, "configs": [out_file]}
 
-#def validate_state(state: EnsembleState, required_keys: list[str]) -> None:
+
+# def validate_state(state: EnsembleState, required_keys: list[str]) -> None:
 #    """Validate state contains required keys with non-empty values"""
 #    missing = [key for key in required_keys if not state.get(key)]
 #    if missing:
 #        raise WorkflowError(f"Missing required state keys: {missing}", state)
 #
 #
-#def validate_workflow(workflow, initial_state: EnsembleState) -> None:
+# def validate_workflow(workflow, initial_state: EnsembleState) -> None:
 #    """Validate workflow configuration and initial state"""
 #    # Validate nodes
 #    required_nodes = {'dft_sp', 'train_mace'}
@@ -713,7 +743,7 @@ def run_topology_relabel(state: EnsembleState) -> EnsembleState:
 #    validate_state(initial_state, ['configs', 'qchem_strategy', 'mlip_strategy'])
 
 
-#def evalute_mlip_error(state: EnsembleState) -> EnsembleState:
+# def evalute_mlip_error(state: EnsembleState) -> EnsembleState:
 #    """
 #    Evaluate MLIP error against DFT reference data.
 #
@@ -740,7 +770,7 @@ def run_topology_relabel(state: EnsembleState) -> EnsembleState:
 #        raise RuntimeError(f"MLIP error evaluation failed: {str(e)}")
 
 
-#def clean_dft_data(state: EnsembleState) -> EnsembleState:
+# def clean_dft_data(state: EnsembleState) -> EnsembleState:
 #    """Clean DFT data by removing unnecessary info and standardizing keys.
 #
 #    Args:

@@ -10,16 +10,17 @@ from wfl.generate.neb import NEB as run_neb
 
 from mlipflow.adapters.wflio import ForceCheck
 
-#from wfl.generate.md import md as run_md
+# from wfl.generate.md import md as run_md
 from mlipflow.core.md_nvt import md as run_md
 
-#from wfl.generate.optimize import optimize as optimize
+# from wfl.generate.optimize import optimize as optimize
 from mlipflow.core.relaxation_fire import optimize
 from mlipflow.data import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
 #####################################################################
+
 
 # Base Strategy class for structure generator approach
 class StructureGenStrategy(ABC):
@@ -32,19 +33,31 @@ class StructureGenStrategy(ABC):
     def generate_new_structures(self):
         pass
 
+
 # Strategy using MD as generator
 class MDGen(StructureGenStrategy):
-    def __init__(self, uncertainty_thrs,
-                 n_failed_steps=10,
-                 params={"steps": 500, "dt": 1, "temperature": 300., "traj_step_interval": 1}) -> None:
+    def __init__(self, uncertainty_thrs, n_failed_steps=10, params=None) -> None:
+        if params is None:
+            params = {
+                "steps": 500,
+                "dt": 1,
+                "temperature": 300.0,
+                "traj_step_interval": 1,
+            }
         super().__init__()
         self.uncertainty_thrs = uncertainty_thrs
         self.n_failed_steps = n_failed_steps
         self.params = params
         self.calc_prefix = "md"
 
-    def generate_new_structures(self, in_file, out_file, calculator,
-                                traj_select_after_func=None, remote_info=None) -> None:
+    def generate_new_structures(
+        self,
+        in_file,
+        out_file,
+        calculator,
+        traj_select_after_func=None,
+        remote_info=None,
+    ) -> None:
         """
         Generates new configs via the wfl.generate_configs.md sample function.
 
@@ -61,8 +74,9 @@ class MDGen(StructureGenStrategy):
         rng = np.random.default_rng(1)
 
         # running MD
-        abort_check = ForceCheck(threshold=self.uncertainty_thrs,
-                                 n_failed_steps=self.n_failed_steps)
+        abort_check = ForceCheck(
+            threshold=self.uncertainty_thrs, n_failed_steps=self.n_failed_steps
+        )
 
         if remote_info is None:
             run_md(
@@ -72,7 +86,7 @@ class MDGen(StructureGenStrategy):
                 rng=rng,
                 traj_select_after_func=traj_select_after_func,
                 abort_check=abort_check,
-                **self.params
+                **self.params,
             )
 
         elif remote_info:
@@ -86,20 +100,25 @@ class MDGen(StructureGenStrategy):
                 autopara_info=AutoparaInfo(
                     remote_info=remote_info,
                     num_inputs_per_python_subprocess=1,
-                    num_python_subprocesses=1
+                    num_python_subprocesses=1,
                 ),
-                **self.params
+                **self.params,
             )
+
 
 # Strategy using optimisation as generator
 class OPTGen(StructureGenStrategy):
-    def __init__(self, traj_subselect="last", params={"fmax": 0.005, "steps": 250}) -> None:
+    def __init__(self, traj_subselect="last", params=None) -> None:
+        if params is None:
+            params = {"fmax": 0.005, "steps": 250}
         super().__init__()
         self.traj_subselect = traj_subselect
         self.params = params
         self.calc_prefix = "opt"
 
-    def generate_new_structures(self, in_file, out_file, calculator, remote_info=None) -> None:
+    def generate_new_structures(
+        self, in_file, out_file, calculator, remote_info=None
+    ) -> None:
         """
         Generates new configs via the wfl.generate_configs.optimize run function.
 
@@ -128,7 +147,7 @@ class OPTGen(StructureGenStrategy):
                 outputs=out_config,
                 calculator=calculator,
                 traj_subselect=self.traj_subselect,
-                **self.params
+                **self.params,
             )
 
         elif remote_info:
@@ -140,21 +159,26 @@ class OPTGen(StructureGenStrategy):
                 autopara_info=AutoparaInfo(
                     remote_info=remote_info,
                     num_inputs_per_python_subprocess=1,
-                    num_python_subprocesses=1
+                    num_python_subprocesses=1,
                 ),
-                **self.params
+                **self.params,
             )
+
 
 # Strategy using CI-NEB as generator
 class NEBGen(StructureGenStrategy):
-    def __init__(self, traj_subselect="last", params={"fmax": 0.05, "steps": 250}, n_images=9) -> None:
+    def __init__(self, traj_subselect="last", params=None, n_images=9) -> None:
+        if params is None:
+            params = {"fmax": 0.05, "steps": 250}
         super().__init__()
         self.traj_subselect = traj_subselect
         self.params = params
         self.n_images = n_images
         self.calc_prefix = "neb"
 
-    def generate_new_structures(self, in_file, out_file, calculator, remote_info=None) -> None:
+    def generate_new_structures(
+        self, in_file, out_file, calculator, remote_info=None
+    ) -> None:
         """
         Generates new configs via the wfl.generate.neb.NEB run function.
 
@@ -172,7 +196,9 @@ class NEBGen(StructureGenStrategy):
         """
         in_config = list(ConfigSet(in_file))
         n_configs = len(in_config)
-        neb_sets = [in_config[i:i+self.n_images] for i in range(0, n_configs, self.n_images)]
+        neb_sets = [
+            in_config[i : i + self.n_images] for i in range(0, n_configs, self.n_images)
+        ]
         out_config = OutputSpec(out_file)
 
         if remote_info is None:
@@ -181,7 +207,7 @@ class NEBGen(StructureGenStrategy):
                 outputs=out_config,
                 calculator=calculator,
                 traj_subselect=self.traj_subselect,
-                **self.params
+                **self.params,
             )
 
         elif remote_info:
@@ -193,7 +219,7 @@ class NEBGen(StructureGenStrategy):
                 autopara_info=AutoparaInfo(
                     remote_info=remote_info,
                     num_inputs_per_python_subprocess=1,
-                    num_python_subprocesses=1
+                    num_python_subprocesses=1,
                 ),
-                **self.params
+                **self.params,
             )

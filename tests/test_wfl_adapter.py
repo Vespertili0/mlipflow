@@ -24,16 +24,17 @@ def test_force_check():
     calc.get_forces.return_value = np.array([[1.5, 0.0, 0.0]])
     assert bool(abort.atoms_ok(at)) is False
 
+
 def test_select_config():
     # Helper to create list of dummy objects
-    traj = [i for i in range(20)]
+    traj = list(range(20))
 
     # Case < 10
     short_traj = traj[:5]
     assert select_config(short_traj) == [4]
 
     # Case == 500
-    long_traj = [i for i in range(500)]
+    long_traj = list(range(500))
     assert select_config(long_traj) == [499]
 
     # Case else (e.g. 20)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import numpy as np
 from ase import Atoms
@@ -31,7 +32,6 @@ def test_split_configset_by_force_agreement(tmp_path):
         at.info["index"] = i
         atoms_list.append(at)
 
-    in_file = tmp_path / "test_selection.xyz"
     # The function writes to f'{suffix}_{out_file}'
     # If out_file is absolute path /tmp/.../split.xyz
     # It writes to train_/tmp/.../split.xyz which is invalid path.
@@ -42,7 +42,7 @@ def test_split_configset_by_force_agreement(tmp_path):
     # If out_file is 'split.xyz', it writes 'train_split.xyz'.
 
     # I should change directory to tmp_path to make it safe.
-    cwd = os.getcwd()
+    cwd = Path.cwd()
     os.chdir(tmp_path)
     try:
         write("test_selection.xyz", atoms_list)
@@ -52,14 +52,14 @@ def test_split_configset_by_force_agreement(tmp_path):
             out_file="split.xyz",
             pair_tuple=("DFT_", "MACE_"),
             main_suffix="train",
-            side_suffix="test"
+            side_suffix="test",
         )
 
         train_file = "train_split.xyz"
         test_file = "test_split.xyz"
 
-        assert os.path.exists(train_file)
-        assert os.path.exists(test_file)
+        assert Path(train_file).exists()
+        assert Path(test_file).exists()
 
         train_atoms = read(train_file, ":")
         test_atoms = read(test_file, ":")
@@ -84,9 +84,9 @@ def test_split_configset_by_force_agreement(tmp_path):
 
 def test_select_by_uncertainty(tmp_path):
     """Test GMM-driven selection of uncertain structures."""
-    test_dir = os.path.dirname(os.path.abspath(__file__))
-    mlip_name = os.path.join(test_dir, "data", "mace_test")
-    test_data = os.path.join(test_dir, "data", "test_data.xyz")
+    test_dir = Path(__file__).resolve().parent
+    mlip_name = str(Path(test_dir) / "data" / "mace_test")
+    test_data = str(Path(test_dir) / "data" / "test_data.xyz")
 
     # Initialise MACEModel strategy
     mace_model = MACEModel(mlip_name=mlip_name, run_mode="local")
@@ -100,14 +100,14 @@ def test_select_by_uncertainty(tmp_path):
         pool_file=test_data,
         out_file=str(out_file),
         mlip_strategy=mace_model,
-        certainty_threshold=0.8,        # The top 20% most uncertain will be selected
+        certainty_threshold=0.8,  # The top 20% most uncertain will be selected
         pca_variance_threshold=0.95,
         max_gmm_components=2,
         gmm_n_init=1,
-        device="cpu"
+        device="cpu",
     )
 
-    assert os.path.exists(out_file)
+    assert Path(out_file).exists()
     selected = read(out_file, ":")
 
     # The output should contain some selected structures

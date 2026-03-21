@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -18,21 +19,25 @@ from mlipflow.data.gmm import (
     torch_pca_dynamic,
     train_gmm,
 )
-from mlipflow.strategies.mlip import MACEModel
+
+if TYPE_CHECKING:
+    from mlipflow.strategies.mlip import MACEModel
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
 
-def split_configset_by_force_agreement(in_file, out_file, pair_tuple, main_suffix="train", side_suffix="test") -> None:
+def split_configset_by_force_agreement(
+    in_file, out_file, pair_tuple, main_suffix="train", side_suffix="test"
+) -> None:
     """
     Split a ConfigSet into two parts based on force agreement between two force keys.
-    
+
     Logic:
     - Top 20% (highest MAE) always go into the main_chunk.
     - From the bottom 80%, randomly select another 60% of the total dataset.
     - Remaining ~20% go into the side_chunk.
-    
+
     Parameters
     ----------
     in_file : str
@@ -45,16 +50,21 @@ def split_configset_by_force_agreement(in_file, out_file, pair_tuple, main_suffi
         Suffix for the main split output file.
     side_suffix : str, default='test'
         Suffix for the side split output file.
-    
+
     """
     assert len(pair_tuple) == 2, "need two force keys to compare"
 
     configs = atoms_to_list(ConfigSet(in_file))
     # get MAE for forces and rank
-    force_mae = []
-    for at in configs:
-        force_mae.append(
-            np.mean(np.abs(at.arrays[f"{pair_tuple[0]}forces"] - at.arrays[f"{pair_tuple[1]}forces"])))
+    force_mae = [
+        np.mean(
+            np.abs(
+                at.arrays[f"{pair_tuple[0]}forces"]
+                - at.arrays[f"{pair_tuple[1]}forces"]
+            )
+        )
+        for at in configs
+    ]
     n_total = len(force_mae)
 
     # find top 20% group using quantile
@@ -64,10 +74,8 @@ def split_configset_by_force_agreement(in_file, out_file, pair_tuple, main_suffi
     # pull extra 60% (of total) from bottom 80% at random
     other_frames = np.where(force_mae < cutoff)[0]
     n_extra = min(int(n_total * 0.6), len(other_frames))
-    selected_frames = np.random.choice(
-        other_frames,
-        size=n_extra,
-        replace=False
+    selected_frames = np.random.default_rng().choice(
+        other_frames, size=n_extra, replace=False
     )
 
     # combine and finalise frame_idx
@@ -96,15 +104,15 @@ def select_by_uncertainty(
 ) -> None:
     """
     Select new structures from a pool based on GMM uncertainty.
-    
+
     Logic:
     - Extracts atomic descriptors from training configurations.
     - Fits a PCA on training descriptors and projects them.
     - Fits a PyTorch GMM on the PCA-reduced training descriptors.
-    - Evaluates uncertainty on pool configurations using structure-wise 
+    - Evaluates uncertainty on pool configurations using structure-wise
       min-pooling of atomic log-likelihoods.
-    - Selects configurations that have a structure uncertainty score higher 
-      than the threshold defined by the `certainty_threshold` percentile on the 
+    - Selects configurations that have a structure uncertainty score higher
+      than the threshold defined by the `certainty_threshold` percentile on the
       training data.
 
     Parameters
@@ -118,7 +126,7 @@ def select_by_uncertainty(
     mlip_strategy : MACEModel
         The `MACEModel` defining the strategy and paths for calculation.
     certainty_threshold : float, default=0.8
-        Percentile of the training data uncertainty distribution used as the cutoff 
+        Percentile of the training data uncertainty distribution used as the cutoff
         for certainty. Structures with uncertainty above this value are selected.
     pca_variance_threshold : float, default=0.95
         Variance ratio to be captured by the dynamic PCA projection.
@@ -140,13 +148,14 @@ def select_by_uncertainty(
     pool_configs = list(ConfigSet(pool_file))
 
     # Prepare descriptors
-    train_padded, train_flat = compute_descriptors(train_configs, mlip_calc, device, dtype)
+    train_padded, train_flat = compute_descriptors(
+        train_configs, mlip_calc, device, dtype
+    )
     pool_padded, _ = compute_descriptors(pool_configs, mlip_calc, device, dtype)
 
     # Run PCA on training data
-    X_train_reduced, pca_V, pca_mean, n_pca_components = torch_pca_dynamic(
-        X=train_flat,
-        threshold=pca_variance_threshold
+    X_train_reduced, pca_V, pca_mean, _n_pca_components = torch_pca_dynamic(
+        X=train_flat, threshold=pca_variance_threshold
     )
 
     # Fit GMM & evaluate uncertainty cutoff
@@ -155,21 +164,28 @@ def select_by_uncertainty(
         k=None,
         max_k=max_gmm_components,
         n_init=gmm_n_init,
-        device=device
+        device=device,
     )
-    train_uncertainty = evaluate_pool_uncertainty(best_gmm, pca_V, pca_mean, train_padded)
+    train_uncertainty = evaluate_pool_uncertainty(
+        best_gmm, pca_V, pca_mean, train_padded
+    )
     gmm_threshold = get_certainty_threshold(
-        train_uncertainty,
-        certainty_percentile=certainty_threshold
+        train_uncertainty, certainty_percentile=certainty_threshold
     )
 
     # Identify pool members with uncertainty below threshold (higher score = more uncertain)
     pool_uncertainty = evaluate_pool_uncertainty(best_gmm, pca_V, pca_mean, pool_padded)
-    uncertain_frames_tensor = select_uncertain_structures(pool_uncertainty, gmm_threshold)
+    uncertain_frames_tensor = select_uncertain_structures(
+        pool_uncertainty, gmm_threshold
+    )
 
     # Isolate uncertain frames
-    selected_configs = [pool_configs[frame_idx] for frame_idx in uncertain_frames_tensor]
-    logger.info(f"Selected {len(selected_configs)} configurations based on uncertainty threshold {gmm_threshold}")
+    selected_configs = [
+        pool_configs[frame_idx] for frame_idx in uncertain_frames_tensor
+    ]
+    logger.info(
+        f"Selected {len(selected_configs)} configurations based on uncertainty threshold {gmm_threshold}"
+    )
 
     OutputSpec(out_file).write(ConfigSet(selected_configs))
 

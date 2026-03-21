@@ -1,10 +1,15 @@
-import os
+from __future__ import annotations
+
+from pathlib import Path
+
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.fit import error
 from wfl.utils.configs import atomization_energy
 
 
-def calculate_mlip_error(in_configs, out_file, calc_property_prefix, ref_property_prefix='DFT_', fig_dir='.') -> dict:
+def calculate_mlip_error(
+    in_configs, out_file, calc_property_prefix, ref_property_prefix="DFT_", fig_dir="."
+) -> dict:
     """
     Calculate and plot the error of MLIP predictions against reference DFT values.
     Parameters
@@ -26,13 +31,13 @@ def calculate_mlip_error(in_configs, out_file, calc_property_prefix, ref_propert
     """
     # write joint configs to file
     OutputSpec(out_file).write(ConfigSet(in_configs))
-    
+
     # calculate atomisation-energy for DFT- & MLIP-energy
     for prop in [calc_property_prefix, ref_property_prefix]:
         atomization_energy(
-            inputs=ConfigSet(out_file), 
-            outputs=OutputSpec(out_file, overwrite=True), 
-            prop_prefix=prop
+            inputs=ConfigSet(out_file),
+            outputs=OutputSpec(out_file, overwrite=True),
+            prop_prefix=prop,
         )
 
     # calculate errors
@@ -40,24 +45,21 @@ def calculate_mlip_error(in_configs, out_file, calc_property_prefix, ref_propert
         inputs=ConfigSet(out_file),
         calc_property_prefix=calc_property_prefix,
         ref_property_prefix=ref_property_prefix,
-        category_keys='data_type', 
-        config_properties=["atomization_energy/atom"], #"energy/atom"
-        atom_properties=["forces/comp"]
+        category_keys="data_type",
+        config_properties=["atomization_energy/atom"],  # "energy/atom"
+        atom_properties=["forces/comp"],
     )
-    
+
     # plot errors
-    for error_type in ['RMSE', 'MAE']:
+    for error_type in ["RMSE", "MAE"]:
         error.value_error_scatter(
-            all_errors = errors,
-            all_diffs=diffs, 
+            all_errors=errors,
+            all_diffs=diffs,
             all_parity=parity,
-            output=os.path.join(
-                fig_dir, 
-                f"{calc_property_prefix}_{error_type}.png"
-            ),
+            output=Path(fig_dir) / f"{calc_property_prefix}_{error_type}.png",
             calc_property_prefix=calc_property_prefix,
             ref_property_prefix=ref_property_prefix,
-            error_type=error_type
+            error_type=error_type,
         )
-    
+
     return errors

@@ -29,19 +29,17 @@ from ase.constraints import FixAtoms
 
 # 1. Define Constraints
 # Map 'reactant_label -> product_label' to a list of constraints
-constraints = {
-    'slab+CO -> slab_CO': [FixAtoms(indices=[0, 1, 2, 3])]
-}
+constraints = {"slab+CO -> slab_CO": [FixAtoms(indices=[0, 1, 2, 3])]}
 
 # 2. Generate NEB Pairs
 # This returns a list of ConfigSets, where each ConfigSet contains the bands for a reaction.
 neb_pathways = create_neb_pairs(
-    xyz_file='data.xyz',                # Path to your structure file
-    rxn_constraints_dict=constraints,   # Your constraints dictionary
-    method='similarity',                # Use similarity-based pairing
-    n_pathways=5,                       # Number of pathways to generate per reaction
-    n_images=7,                         # Number of intermediate images (excluding start/end)
-    descriptor_string='soap cutoff=3.0 l_max=6 n_max=9 atom_sigma=0.5' # SOAP descriptor string
+    xyz_file="data.xyz",  # Path to your structure file
+    rxn_constraints_dict=constraints,  # Your constraints dictionary
+    method="similarity",  # Use similarity-based pairing
+    n_pathways=5,  # Number of pathways to generate per reaction
+    n_images=7,  # Number of intermediate images (excluding start/end)
+    descriptor_string="soap cutoff=3.0 l_max=6 n_max=9 atom_sigma=0.5",  # SOAP descriptor string
 )
 ```
 
@@ -53,21 +51,19 @@ For more granular control, you can use the `NEBPairFinder` class directly.
 from mlipflow.core.neb_pairing import NEBPairFinder
 
 # Initialise with your structure file
-finder = NEBPairFinder('data.xyz')
+finder = NEBPairFinder("data.xyz")
 
 # Generate random pathways for a specific transition
 random_paths = finder.generate_random(
-    transition_string='slab+CO -> slab_CO',
-    n_pairings=10,
-    n_images=5
+    transition_string="slab+CO -> slab_CO", n_pairings=10, n_images=5
 )
 
 # Generate similarity-based pathways
 similarity_paths = finder.generate_similarity_pathways(
-    transition_string='slab+CO -> slab_CO',
+    transition_string="slab+CO -> slab_CO",
     n_pathways=5,
-    descriptor_string='soap ...',
-    n_images=5
+    descriptor_string="soap ...",
+    n_images=5,
 )
 ```
 

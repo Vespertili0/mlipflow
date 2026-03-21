@@ -25,11 +25,10 @@ def test_semi_supervised_gmm_pipeline():
             mlip_strategy=strategy,
             device="cpu",
             high_certainty=0.1,  # Very low to guarantee retention for the refit step
-            final_certainty=0.0, # 0.0 to retain everything at the end so we can count
+            final_certainty=0.0,  # 0.0 to retain everything at the end so we can count
             pca_threshold=0.95,
-            gmm_iters=2          # Fast fit for testing
+            gmm_iters=2,  # Fast fit for testing
         )
-
 
         certain_configs, uncertain_configs, certainty_scores = pipeline.run()
 
