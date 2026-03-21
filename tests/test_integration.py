@@ -84,7 +84,7 @@ def test_execute_dft_single_point_block_integration(real_data_setup):
         at.arrays['MACE_forces'] = np.random.random((len(at), 3))
     write(state['configs'][0], atoms)
 
-    # Initialize graph
+    # Initialise graph
     app = execute_dft_single_point_block()
 
     # Check results

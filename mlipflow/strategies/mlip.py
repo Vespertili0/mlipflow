@@ -26,7 +26,7 @@ class MLIPStrategy(ABC):
     """
     def __init__(self, mlip_name: str, run_mode: str) -> None:
         """
-        Initialize the MLIPStrategy.
+        Initialise the MLIPStrategy.
 
         Args:
             mlip_name (str): Name of the MLIP.
@@ -76,7 +76,7 @@ class MACEModel(MLIPStrategy):
     """
     def __init__(self, mlip_name: str, mace_config: str | None = None, run_mode: str = 'remote') -> None:
         """
-        Initialize the MACEModel.
+        Initialise the MACEModel.
 
         Args:
             mlip_name (str): Name of the MLIP.
@@ -203,7 +203,7 @@ class GAPModel(MLIPStrategy):
     """
     def __init__(self, mlip_file: str, run_mode: str = 'remote') -> None:
         """
-        Initialize the GAPModel.
+        Initialise the GAPModel.
 
         Args:
             mlip_file (str): File name of the GAP model.

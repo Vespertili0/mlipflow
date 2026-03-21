@@ -71,13 +71,15 @@ def execute_initial_basin_pathsampling_md_block():
     
     graph = StateGraph(EnsembleState)
     graph.add_node('apply_and_run_basin', run_apply_basin_constraints)
+    graph.add_node('check_config_labels', run_topology_relabel)
     graph.add_node('gen_and_run_neb', run_generate_neb_pairs)
     graph.add_node('merge_configs', merge_configs)
     graph.add_node('mlip_sp', run_mlip_sp)
     graph.add_node('select_configs', run_config_fps_selection)
 
     graph.add_edge(START, 'apply_and_run_basin')
-    graph.add_edge('apply_and_run_basin', 'gen_and_run_neb')
+    graph.add_edge('apply_and_run_basin', 'check_config_labels')
+    graph.add_edge('check_config_labels', 'gen_and_run_neb')
     graph.add_edge('gen_and_run_neb', 'merge_configs')
     graph.add_edge('merge_configs', 'mlip_sp')
     graph.add_edge('mlip_sp', 'select_configs')

@@ -7,8 +7,8 @@ from wfl.configset import ConfigSet, OutputSpec
 from wfl.utils.misc import atoms_to_list
 from mlipflow.strategies.mlip import MACEModel
 from mlipflow.data.gmm import (
-    find_best_gmm, evaluate_pool_uncertainty, torch_pca_dynamic,
-    get_certainty_threshold, select_uncertain_structures
+    train_gmm, evaluate_pool_uncertainty, torch_pca_dynamic,
+    get_certainty_threshold, select_uncertain_structures, compute_descriptors
 )
 from mace.calculators import MACECalculator
 
@@ -132,37 +132,32 @@ def select_by_uncertainty(
     pool_configs = list(ConfigSet(pool_file))
     
     # Prepare descriptors
-    train_descr = np.array(
-        [mlip_calc.get_descriptors(at) for at in train_configs]
-    )
-    X_train = torch.from_numpy(train_descr).to(device).float()
-    pool_descr = np.array(
-        [mlip_calc.get_descriptors(at) for at in pool_configs]
-    )
-    X_pool = torch.from_numpy(pool_descr).to(device).float()
+    train_padded, train_flat = compute_descriptors(train_configs, mlip_calc, device, dtype)
+    pool_padded, _ = compute_descriptors(pool_configs, mlip_calc, device, dtype)
 
     # Run PCA on training data
-    X_train_reduced, pca_V, pca_mean, n_paca_components = torch_pca_dynamic(
-        X=X_train.reshape(-1, X_train.shape[-1]), 
+    X_train_reduced, pca_V, pca_mean, n_pca_components = torch_pca_dynamic(
+        X=train_flat, 
         threshold=pca_variance_threshold
     )
     
-    # Fit GMM & evalute uncertainty cutoff
-    best_gmm = find_best_gmm(
+    # Fit GMM & evaluate uncertainty cutoff
+    best_gmm = train_gmm(
         X_reduced=X_train_reduced, 
+        k=None,
         max_k=max_gmm_components, 
         n_init=gmm_n_init, 
         device=device
     )
-    train_atom_ll = evaluate_pool_uncertainty(best_gmm, pca_V, pca_mean, X_train)
+    train_uncertainty = evaluate_pool_uncertainty(best_gmm, pca_V, pca_mean, train_padded)
     gmm_threshold = get_certainty_threshold(
-        train_atom_ll, 
+        train_uncertainty, 
         certainty_percentile=certainty_threshold
     )
     
-    # Identify pool members with uncertainty below threshold
-    pool_atom_ll = evaluate_pool_uncertainty(best_gmm, pca_V, pca_mean, X_pool)
-    uncertain_frames_tensor = select_uncertain_structures(pool_atom_ll, gmm_threshold)
+    # Identify pool members with uncertainty below threshold (higher score = more uncertain)
+    pool_uncertainty = evaluate_pool_uncertainty(best_gmm, pca_V, pca_mean, pool_padded)
+    uncertain_frames_tensor = select_uncertain_structures(pool_uncertainty, gmm_threshold)
 
     # Isolate uncertain frames
     selected_configs = [pool_configs[frame_idx] for frame_idx in uncertain_frames_tensor]   
