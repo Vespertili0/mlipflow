@@ -10,8 +10,6 @@ mlipflow bridges the critical gap between high-level machine learning developmen
 >The Cost-Accuracy Trade-off: Density Functional Theory (DFT) is the gold standard for accuracy but is too slow for exhaustive pathway exploration.
 >
 >Human Selection Bias: Researchers often manually "guess" reaction pathways, potentially missing the actual rate-determining steps or low-energy configurations.
->
->Architecture Lock-in: Most existing MLIP packages are tied to specific, often outdated, ML architectures. Transitioning to state-of-the-art models like MACE typically requires a complete rewrite of the simulation workflow.
 
 ## ✨ Key Features
 
@@ -19,7 +17,7 @@ Modularity: Built on ASE and LangGraph, allowing for modular extension of functi
 
 Scalability: Integrated with WFL to support seamless execution on HPC platforms, scaling from small tests to massive datasets.
 
-Extensibility: Supports multiple strategies for structure generation (e.g., MD, optimization, NEB) and MLIP training (e.g., GAP, MACE)..
+Extensibility: Supports multiple strategies for structure generation (e.g., MD, optimisation, NEB) and MLIP training (e.g., GAP, MACE)..
 
 ## 🔄 The Iterative Workflow
 
@@ -41,7 +39,7 @@ Code examples demonstrating primary functions and expected outcomes, including g
 
 ## Features
 - Easy to use and extend
-- Optimized for performance
+- Optimised for performance
 - Comprehensive error handling
 
 ## Code Structure & Roadmap

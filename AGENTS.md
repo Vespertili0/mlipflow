@@ -31,9 +31,6 @@ mlipflow bridges the critical gap between high-level machine learning developmen
 - Optimised dictionary lookups and general data processing performance.
 
 ## Reminders
-- [ ] Apply British spelling rules to all documentation and text outputs.
-- [ ] Always wait for approval of your Implementation Plan.
-- [ ] Never propose a Verification as the user will verify externally.
 - [ ] Ensure all code passes `ruff` linting with `numpy` docstring conventions as specified in `pyproject.toml`.
 - [ ] Run tests via `python -m pytest tests/` before committing.
 
