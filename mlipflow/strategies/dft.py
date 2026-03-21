@@ -51,7 +51,7 @@ class EMTCalc(QChemStrategy):
         super().__init__()
         self.remote_info = None
 
-    def get_calculator(self, _job_name: str, **_kwargs) -> tuple:
+    def get_calculator(self, job_name: str, **kwargs) -> tuple:
         """
         Get the EMT calculator.
 
@@ -62,7 +62,9 @@ class EMTCalc(QChemStrategy):
         Returns:
             tuple: (EMT class, None, dict with options)
         """
-        return (EMT, None, {"fixed_cutoff": True})
+        _ = job_name
+        emt_kwargs = {"fixed_cutoff": True, **kwargs}
+        return (EMT, None, emt_kwargs)
 
 
 # Quantum Espresso DFT-strategy class
