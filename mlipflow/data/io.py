@@ -19,7 +19,7 @@ def get_model_name(mlip_dir: str, fit_idx: int, mlip_prefix: str) -> str:
 
 
 def initialise_ensembles(ensemble_traj: str, files: dict) -> None:
-    """Initialize ensemble from trajectory file."""
+    """Initialise ensemble from trajectory file."""
     if not os.path.exists(ensemble_traj):
         raise FileNotFoundError(f"Ensemble trajectory file {ensemble_traj} not found")
     try:
@@ -27,7 +27,7 @@ def initialise_ensembles(ensemble_traj: str, files: dict) -> None:
         configs = read(files.get("ensemble_traj"), ':')
         write(files.get("ensemble_xyz"), configs)
     except Exception as e:
-        raise RuntimeError(f"Failed to initialize ensembles: {str(e)}")
+        raise RuntimeError(f"Failed to Initialise ensembles: {str(e)}")
 
 
 def move_mace_model_file(mlip_dir: str, file_prefix: str) -> None:

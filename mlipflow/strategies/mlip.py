@@ -26,7 +26,7 @@ class MLIPStrategy(ABC):
     """
     def __init__(self, mlip_name: str, run_mode: str) -> None:
         """
-        Initialize the MLIPStrategy.
+        Initialise the MLIPStrategy.
 
         Args:
             mlip_name (str): Name of the MLIP.
@@ -76,7 +76,7 @@ class MACEModel(MLIPStrategy):
     """
     def __init__(self, mlip_name: str, mace_config: str | None = None, run_mode: str = 'remote') -> None:
         """
-        Initialize the MACEModel.
+        Initialise the MACEModel.
 
         Args:
             mlip_name (str): Name of the MLIP.
@@ -88,7 +88,7 @@ class MACEModel(MLIPStrategy):
         self.mace_config = mace_config
         self.model_file = f"{mlip_name}.model"
 
-    def get_calculator(self, job_name: str, dispersion: bool = True, dtype: str = 'float32',
+    def get_calculator(self, job_name: str, dispersion: bool = True, dtype: str = 'float32', n_cores: int = 1,
                        max_time: str = '00:10:00', num_inputs_per_queued_job: int = 4) -> tuple:
         """
         It returns the MACE-calculator as tuple with the ase-calculator class, arguments and keyword arguments.
@@ -109,7 +109,7 @@ class MACEModel(MLIPStrategy):
         elif self.run_mode == "remote":
             self.remote_info = prepare_remote(
                 max_time=max_time, 
-                n_cores=1,
+                n_cores=n_cores,
                 num_inputs_per_queued_job=num_inputs_per_queued_job,
                 job_name=job_name,
 #                pre_cmds=['export WFL_NUM_PYTHON_SUBPROCESSES=4']
@@ -203,7 +203,7 @@ class GAPModel(MLIPStrategy):
     """
     def __init__(self, mlip_file: str, run_mode: str = 'remote') -> None:
         """
-        Initialize the GAPModel.
+        Initialise the GAPModel.
 
         Args:
             mlip_file (str): File name of the GAP model.

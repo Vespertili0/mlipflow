@@ -81,7 +81,7 @@ class DataManager:
         )
 
     def initialise_ensembles(self, ensemble_traj: str) -> None:
-        """Initialize ensemble from trajectory file."""
+        """Initialise ensemble from trajectory file."""
         if not os.path.exists(ensemble_traj):
             raise FileNotFoundError(f"Ensemble trajectory file {ensemble_traj} not found")
         try:
@@ -89,7 +89,7 @@ class DataManager:
             configs = read(self.files.get("ensemble_traj"), ':')
             write(self.files.get("ensemble_xyz"), configs)
         except Exception as e:
-            raise RuntimeError(f"Failed to initialize ensembles: {str(e)}")
+            raise RuntimeError(f"Failed to Initialise ensembles: {str(e)}")
     
     def move_mace_model_file(self, file_prefix: str) -> None:
         """
@@ -114,7 +114,7 @@ class DataManager:
         array_keys = ['numbers', 'positions', 'tags', 'DFT_forces', f'last_op__{keys.get(calc)}_forces'] #, 'GAP_uncertainty_meV'
         info_keys = ['MD_step', 'DFT_energy', f'last_op__{keys.get(calc)}_energy', 'config_type', 'data_type']
 
-        all_configs = [a for a in read(in_file, ':') if 'DFT_energy' in a.info.keys()]
+        all_configs = [a for a in read(in_file, ':') if 'DFT_energy' in a.info]
         
         assert all_configs, 'no valid structures from DFT! check data'
         
@@ -169,7 +169,7 @@ class DataManager:
         success_configs = []
         failed_configs = []
         for config in configs:
-            if key not in config.info.keys():
+            if key not in config.info:
                 failed_configs.append(config)
             else:
                 success_configs.append(config)

@@ -52,7 +52,7 @@ For more granular control, you can use the `NEBPairFinder` class directly.
 ```python
 from mlipflow.core.neb_pairing import NEBPairFinder
 
-# Initialize with your structure file
+# Initialise with your structure file
 finder = NEBPairFinder('data.xyz')
 
 # Generate random pathways for a specific transition

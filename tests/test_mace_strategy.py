@@ -1,12 +1,17 @@
-import os, pytest
+from __future__ import annotations
+
+import os
+
 from ase.calculators.mixing import SumCalculator
 from mace.calculators import MACECalculator
+
 from mlipflow.strategies.mlip import MACEModel
+
 
 def test_mace_model_initialization():
     """Test MACEModel initialization."""
     test_dir = os.path.dirname(os.path.abspath(__file__))
-    mlip_name = os.path.join(test_dir, 'data', 'mace_test')
+    mlip_name = os.path.join(test_dir, "data", "mace_test")
     mace_model = MACEModel(
         mlip_name=mlip_name,
         run_mode="local"
@@ -16,7 +21,7 @@ def test_mace_model_initialization():
 def test_mace_model_get_calculator_local():
     """Test MACEModel's get_calculator method in local mode."""
     test_dir = os.path.dirname(os.path.abspath(__file__))
-    mlip_name = os.path.join(test_dir, 'data', 'mace_test')
+    mlip_name = os.path.join(test_dir, "data", "mace_test")
     mace_model = MACEModel(
         mlip_name=mlip_name,
         run_mode="local"
@@ -31,7 +36,7 @@ def test_mace_model_get_calculator_local():
 def test_mace_model_get_calculator_remote():
     """Test MACEModel's get_calculator method in remote mode."""
     test_dir = os.path.dirname(os.path.abspath(__file__))
-    mlip_name = os.path.join(test_dir, 'data', 'mace_test')
+    mlip_name = os.path.join(test_dir, "data", "mace_test")
     mace_model = MACEModel(
         mlip_name=mlip_name,
         run_mode="remote"
@@ -46,7 +51,7 @@ def test_mace_model_get_calculator_remote():
 def test_mace_model_get_calculator_no_dispersion():
     """Test MACEModel's get_calculator method without dispersion."""
     test_dir = os.path.dirname(os.path.abspath(__file__))
-    mlip_name = os.path.join(test_dir, 'data', 'mace_test')
+    mlip_name = os.path.join(test_dir, "data", "mace_test")
     mace_model = MACEModel(
         mlip_name=mlip_name,
         run_mode="local"

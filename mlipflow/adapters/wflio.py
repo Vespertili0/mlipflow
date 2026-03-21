@@ -1,10 +1,11 @@
-import os
+from __future__ import annotations
+
 import numpy as np
 from ase.calculators.calculator import all_changes
-from wfl.calculators.wfl_fileio_calculator import WFLFileIOCalculator
-from wfl.generate.md.abort_base import AbortSimBase
 from mace.calculators import MACECalculator
 from quippy.potential import Potential
+from wfl.calculators.wfl_fileio_calculator import WFLFileIOCalculator
+from wfl.generate.md.abort_base import AbortSimBase
 
 # NOMAD compatible, see https://nomad-lab.eu/prod/rae/gui/uploads
 _default_keep_files = ["*.out"]
@@ -15,10 +16,10 @@ class GAPCalc(WFLFileIOCalculator, Potential):
     """
     Calculator class for GAP potentials that integrates with WFL workflows.
     """
-    def __init__(self, keep_files: str = 'default', rundir_prefix: str = 'run_GAP_', 
+    def __init__(self, keep_files: str = "default", rundir_prefix: str = "run_GAP_",
                  workdir: str | None = None, scratchdir: str | None = None, **kwargs):
         """
-        Initialize the GAPCalc.
+        Initialise the GAPCalc.
 
         Args:
             keep_files (str): Files to keep. Defaults to 'default'.
@@ -32,7 +33,7 @@ class GAPCalc(WFLFileIOCalculator, Potential):
         super().__init__(keep_files=keep_files, rundir_prefix=rundir_prefix,
                          workdir=workdir, scratchdir=scratchdir, **kwargs)
 
-    def calculate(self, atoms: object = None, properties: list[str] = _default_properties, 
+    def calculate(self, atoms: object = None, properties: list[str] = _default_properties,
                   system_changes: list[str] = all_changes) -> None:
         """
         Perform the calculation.
@@ -48,25 +49,25 @@ class GAPCalc(WFLFileIOCalculator, Potential):
         try:
             super().calculate(atoms=atoms, properties=properties, system_changes=system_changes)
             calculation_succeeded = True
-            if 'FAILED_GAP' in atoms.info:
-                del atoms.info['FAILED_GAP']
+            if "FAILED_GAP" in atoms.info:
+                del atoms.info["FAILED_GAP"]
         except Exception as exc:
-            atoms.info['FAILED_GAP'] = True
+            atoms.info["FAILED_GAP"] = True
             calculation_succeeded = False
             raise exc
 #        finally:
 #            # from WFLFileIOCalculator
-#            self.clean_rundir(_default_keep_files, calculation_succeeded)   
+#            self.clean_rundir(_default_keep_files, calculation_succeeded)
 
 
 class MACECalc(WFLFileIOCalculator, MACECalculator):
     """
     Calculator class for MACE potentials that integrates with WFL workflows
     """
-    def __init__(self, keep_files: str = 'default', rundir_prefix: str = 'run_MACE_', 
+    def __init__(self, keep_files: str = "default", rundir_prefix: str = "run_MACE_",
                  workdir: str | None = None, scratchdir: str | None = None, **kwargs):
         """
-        Initialize the MACECalc.
+        Initialise the MACECalc.
 
         Args:
             keep_files (str): Files to keep. Defaults to 'default'.
@@ -75,12 +76,12 @@ class MACECalc(WFLFileIOCalculator, MACECalculator):
             scratchdir (str | None): Scratch directory. Defaults to None.
             **kwargs: Additional arguments for the calculator.
         """
-        
+
         # WFLFileIOCalculator is a mixin, will call remaining superclass constructors
         super().__init__(keep_files=keep_files, rundir_prefix=rundir_prefix,
                          workdir=workdir, scratchdir=scratchdir, **kwargs)
 
-    def calculate(self, atoms: object = None, properties: list[str] = _default_properties, 
+    def calculate(self, atoms: object = None, properties: list[str] = _default_properties,
                   system_changes: list[str] = all_changes) -> None:
         """
         Perform the calculation.
@@ -92,22 +93,22 @@ class MACECalc(WFLFileIOCalculator, MACECalculator):
         """
         if atoms is not None:
             self.atoms = atoms.copy()
-        
+
         # from WFLFileIOCalculator
         self.setup_rundir()
 
         try:
             super().calculate(atoms=atoms, properties=properties, system_changes=system_changes)
             calculation_succeeded = True
-            if 'FAILED_MACE' in atoms.info:
-                del atoms.info['FAILED_MACE']
+            if "FAILED_MACE" in atoms.info:
+                del atoms.info["FAILED_MACE"]
         except Exception as exc:
-            atoms.info['FAILED_MACE'] = True
+            atoms.info["FAILED_MACE"] = True
             calculation_succeeded = False
             raise exc
         finally:
             # from WFLFileIOCalculator
-            self.clean_rundir(_default_keep_files, calculation_succeeded)        
+            self.clean_rundir(_default_keep_files, calculation_succeeded)
 
 
 ###############################################################################################################
@@ -119,13 +120,13 @@ class ForceCheck(AbortSimBase):
     """
     def __init__(self, threshold: float, n_failed_steps: int = 10):
         """
-        Initialize the ForceCheck abort criteria.
+        Initialise the ForceCheck abort criteria.
 
         Args:
             threshold (float): Force threshold.
             n_failed_steps (int): Number of failed steps allowed. Defaults to 10.
         """
-        super().__init__(n_failed_steps)      
+        super().__init__(n_failed_steps)
         self.threshold = threshold
 
     def atoms_ok(self, at: object) -> bool:
@@ -153,11 +154,8 @@ def select_config(traj: list[object]) -> list[object]:
     Returns:
         list[ase.Atoms]: Selected configurations.
     """
-    if len(traj) < 10:
+    if len(traj) < 10 or len(traj) == 500:
         return traj[-1:]
-    
-    elif len(traj) == 500:
-        return traj[-1:]
-    
+
     else:
         return traj[-10:-9]

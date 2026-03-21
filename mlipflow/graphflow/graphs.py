@@ -16,10 +16,12 @@ def execute_mlip_structure_generation_block():
 
     graph.add_node('gen_structs', run_mlip_structure_generation)
     graph.add_node('mlip_sp', run_mlip_sp)
+    graph.add_node('select_uncertain_configs', run_config_uncertainty_selection)
 
     graph.add_edge(START, 'gen_structs')
     graph.add_edge('gen_structs', 'mlip_sp')
-    graph.add_edge('mlip_sp', END)
+    graph.add_edge('mlip_sp', 'select_uncertain_configs')
+    graph.add_edge('select_uncertain_configs', END)
 
     return graph.compile()
 
@@ -69,13 +71,15 @@ def execute_initial_basin_pathsampling_md_block():
     
     graph = StateGraph(EnsembleState)
     graph.add_node('apply_and_run_basin', run_apply_basin_constraints)
+    graph.add_node('check_config_labels', run_topology_relabel)
     graph.add_node('gen_and_run_neb', run_generate_neb_pairs)
     graph.add_node('merge_configs', merge_configs)
     graph.add_node('mlip_sp', run_mlip_sp)
-    graph.add_node('select_configs', run_configuration_selection)
+    graph.add_node('select_configs', run_config_fps_selection)
 
     graph.add_edge(START, 'apply_and_run_basin')
-    graph.add_edge('apply_and_run_basin', 'gen_and_run_neb')
+    graph.add_edge('apply_and_run_basin', 'check_config_labels')
+    graph.add_edge('check_config_labels', 'gen_and_run_neb')
     graph.add_edge('gen_and_run_neb', 'merge_configs')
     graph.add_edge('merge_configs', 'mlip_sp')
     graph.add_edge('mlip_sp', 'select_configs')
@@ -84,17 +88,25 @@ def execute_initial_basin_pathsampling_md_block():
     return graph.compile()
 
 
-def execute_configuration_selection_block():
+def execute_opt_neb_combination_block():
     """
-    Workflow for Configuration Selection.
-    Calculates descriptors and selects optimal set of configurations.
+    Workflow for Opt-NEB Combination.
+    Generates structures via OPT followed by NEB and selects by uncertainty.
     """
-    logger.info("...Executing configuration selection block...")
+    logger.info("...Executing opt-neb combination block...")
     graph = StateGraph(EnsembleState)
 
-    graph.add_node('select_configs', run_configuration_selection)
+    graph.add_node('run_optimisation', run_mlip_structure_generation)
+    graph.add_node('switch_to_neb', switch_to_neb_generation)
+    graph.add_node('gen_and_run_neb', run_generate_neb_pairs)
+    graph.add_node('mlip_sp', run_mlip_sp)
+    graph.add_node('select_configs', run_config_uncertainty_selection)
 
-    graph.add_edge(START, 'select_configs')
+    graph.add_edge(START, 'run_optimisation')
+    graph.add_edge('run_optimisation', 'switch_to_neb')
+    graph.add_edge('switch_to_neb', 'gen_and_run_neb')
+    graph.add_edge('gen_and_run_neb', 'mlip_sp')
+    graph.add_edge('mlip_sp', 'select_configs')
     graph.add_edge('select_configs', END)
 
     return graph.compile()

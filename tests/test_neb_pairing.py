@@ -31,7 +31,7 @@ def test_neb_pairing_and_opt(test_data_setup):
     n_pathways = 3
     opt_params = {'fmax': 0.05, 'steps': 5}
     
-    # Initialize strategy and get calculator tuple
+    # Initialise strategy and get calculator tuple
     calculator_strategy = EMTCalc()
     calculator_tuple = calculator_strategy.get_calculator(job_name="test")
 
