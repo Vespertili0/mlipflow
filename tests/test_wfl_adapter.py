@@ -1,14 +1,18 @@
-import pytest
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
 import numpy as np
 from ase import Atoms
-from unittest.mock import MagicMock
+
 from mlipflow.adapters.wflio import ForceCheck, select_config
+
 
 def test_force_check():
     abort = ForceCheck(threshold=1.0, n_failed_steps=2)
 
     # Mock atoms with calculator
-    at = Atoms('H')
+    at = Atoms("H")
     calc = MagicMock()
     at.calc = calc
 

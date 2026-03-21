@@ -85,13 +85,13 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
                 "info_field": "MACE_energy",
                 "n_optimal": 5
             },
-            'relabel_check':{
-                'reference_configs': config_file,
-                'idx_org': slice(64, None),
-                'idx_h': [75, 76],
-                'sigma_isomer': 50,
-                'sigma_reaction': 10,
-                'threshold_reaction': 0.85
+            "relabel_check":{
+                "reference_configs": config_file,
+                "idx_org": slice(64, None),
+                "idx_h": [75, 76],
+                "sigma_isomer": 50,
+                "sigma_reaction": 10,
+                "threshold_reaction": 0.85
             }
         }
 

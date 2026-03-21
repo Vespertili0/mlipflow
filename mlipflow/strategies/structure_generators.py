@@ -1,15 +1,21 @@
-import os, logging 
+from __future__ import annotations
+
+import logging
 from abc import ABC, abstractmethod
+
 import numpy as np
-from wfl.configset import ConfigSet, OutputSpec
 from wfl.autoparallelize import AutoparaInfo
-from mlipflow.data import setup_logging
+from wfl.configset import ConfigSet, OutputSpec
+from wfl.generate.neb import NEB as run_neb
+
+from mlipflow.adapters.wflio import ForceCheck
+
 #from wfl.generate.md import md as run_md
 from mlipflow.core.md_nvt import md as run_md
+
 #from wfl.generate.optimize import optimize as optimize
 from mlipflow.core.relaxation_fire import optimize
-from mlipflow.adapters.wflio import ForceCheck
-from wfl.generate.neb import NEB as run_neb
+from mlipflow.data import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -19,7 +25,7 @@ logger = logging.getLogger(__name__)
 class StructureGenStrategy(ABC):
     def __init__(self) -> None:
         super().__init__()
-        self.calc_prefix = 'base'
+        self.calc_prefix = "base"
         self.params = {}
 
     @abstractmethod
@@ -28,15 +34,15 @@ class StructureGenStrategy(ABC):
 
 # Strategy using MD as generator
 class MDGen(StructureGenStrategy):
-    def __init__(self, uncertainty_thrs, 
-                 n_failed_steps=10, 
-                 params={'steps': 500, 'dt': 1, 'temperature': 300., 'traj_step_interval': 1}) -> None:
+    def __init__(self, uncertainty_thrs,
+                 n_failed_steps=10,
+                 params={"steps": 500, "dt": 1, "temperature": 300., "traj_step_interval": 1}) -> None:
         super().__init__()
         self.uncertainty_thrs = uncertainty_thrs
         self.n_failed_steps = n_failed_steps
         self.params = params
-        self.calc_prefix = 'md'
-    
+        self.calc_prefix = "md"
+
     def generate_new_structures(self, in_file, out_file, calculator,
                                 traj_select_after_func=None, remote_info=None) -> None:
         """
@@ -53,29 +59,29 @@ class MDGen(StructureGenStrategy):
         in_config = ConfigSet(in_file)
         out_config = OutputSpec(out_file)
         rng = np.random.default_rng(1)
-        
+
         # running MD
         abort_check = ForceCheck(threshold=self.uncertainty_thrs,
                                  n_failed_steps=self.n_failed_steps)
-        
+
         if remote_info is None:
             run_md(
-                inputs=in_config, 
-                outputs=out_config, 
-                calculator=calculator, 
-                rng=rng, 
-                traj_select_after_func=traj_select_after_func, 
-                abort_check=abort_check, 
+                inputs=in_config,
+                outputs=out_config,
+                calculator=calculator,
+                rng=rng,
+                traj_select_after_func=traj_select_after_func,
+                abort_check=abort_check,
                 **self.params
             )
-        
+
         elif remote_info:
             run_md(
-                inputs=in_config, 
-                outputs=out_config, 
-                calculator=calculator,  
-                rng=rng, 
-                traj_select_after_func=traj_select_after_func, 
+                inputs=in_config,
+                outputs=out_config,
+                calculator=calculator,
+                rng=rng,
+                traj_select_after_func=traj_select_after_func,
                 abort_check=abort_check,
                 autopara_info=AutoparaInfo(
                     remote_info=remote_info,
@@ -87,11 +93,11 @@ class MDGen(StructureGenStrategy):
 
 # Strategy using optimisation as generator
 class OPTGen(StructureGenStrategy):
-    def __init__(self, traj_subselect="last", params={'fmax': 0.005, 'steps': 250}) -> None:
+    def __init__(self, traj_subselect="last", params={"fmax": 0.005, "steps": 250}) -> None:
         super().__init__()
         self.traj_subselect = traj_subselect
         self.params = params
-        self.calc_prefix = 'opt'
+        self.calc_prefix = "opt"
 
     def generate_new_structures(self, in_file, out_file, calculator, remote_info=None) -> None:
         """
@@ -119,8 +125,8 @@ class OPTGen(StructureGenStrategy):
         if remote_info is None:
             optimize(
                 inputs=in_config,
-                outputs=out_config, 
-                calculator=calculator, 
+                outputs=out_config,
+                calculator=calculator,
                 traj_subselect=self.traj_subselect,
                 **self.params
             )
@@ -128,7 +134,7 @@ class OPTGen(StructureGenStrategy):
         elif remote_info:
             optimize(
                 inputs=in_config,
-                outputs=out_config, 
+                outputs=out_config,
                 calculator=calculator,
                 traj_subselect=self.traj_subselect,
                 autopara_info=AutoparaInfo(
@@ -141,12 +147,12 @@ class OPTGen(StructureGenStrategy):
 
 # Strategy using CI-NEB as generator
 class NEBGen(StructureGenStrategy):
-    def __init__(self, traj_subselect="last", params={'fmax': 0.05, 'steps': 250}, n_images=9) -> None:
+    def __init__(self, traj_subselect="last", params={"fmax": 0.05, "steps": 250}, n_images=9) -> None:
         super().__init__()
         self.traj_subselect = traj_subselect
         self.params = params
         self.n_images = n_images
-        self.calc_prefix = 'neb'
+        self.calc_prefix = "neb"
 
     def generate_new_structures(self, in_file, out_file, calculator, remote_info=None) -> None:
         """

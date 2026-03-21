@@ -1,9 +1,14 @@
-import math, logging
-import torch
+from __future__ import annotations
+
+import logging
+import math
+from typing import List, Optional, Tuple, Union
+
 import numpy as np
-from typing import Tuple, List, Union, Optional
-from mlipflow.utils import find_robust_elbow
+import torch
+
 from mlipflow.data import setup_logging
+from mlipflow.utils import find_robust_elbow
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -14,13 +19,13 @@ class TorchGMM:
     Gaussian Mixture Model (GMM) implemented in PyTorch for GPU-accelerated fitting and scoring.
     Supports full covariance matrices.
     """
-    def __init__(self, n_components: int, n_features: int, device: str = 'cuda', jitter: float = 1e-4, dtype: torch.dtype = torch.float32):
+    def __init__(self, n_components: int, n_features: int, device: str = "cuda", jitter: float = 1e-4, dtype: torch.dtype = torch.float32):
         self.K = n_components
         self.D = n_features
         self.device = device
         self.jitter = jitter # for numerical stability of covariance matrices
         self.dtype = dtype
-        
+
         # Initialise parameters with explicit dtype
         self.mu = torch.randn(self.K, self.D, device=device, dtype=self.dtype)
         self.sigma = torch.stack([torch.eye(self.D, device=device, dtype=self.dtype) for _ in range(self.K)])
@@ -28,33 +33,33 @@ class TorchGMM:
 
     def _component_log_pdf(self, x):
         x = x.to(self.dtype)
-        # torch.eye creates a (D, D) identity matrix, multiplied by jitter; 
+        # torch.eye creates a (D, D) identity matrix, multiplied by jitter;
         # adding to the diagonals of the covariance matrix, sigma, makes it robust
         sigma_reg = self.sigma + torch.eye(self.D, device=self.device, dtype=self.dtype) * self.jitter
         diff = x.unsqueeze(1) - self.mu.unsqueeze(0) # Shape: (N, K, D), where N is the number of samples in x
-        
+
         # Compute Cholesky decomposition for each component's covariance matrix, LxL^T = sigma_reg
         L = torch.linalg.cholesky(sigma_reg) # Shape: (K, D, D)
-        
+
         # FIX: Align batch dimensions perfectly for the solver
         # L becomes (1, K, D, D) and diff becomes (N, K, D, 1)
         # Resulting 'y' will be shape (N, K, D, 1)
         y = torch.linalg.solve_triangular(
-            L.unsqueeze(0), 
-            diff.unsqueeze(-1), 
+            L.unsqueeze(0),
+            diff.unsqueeze(-1),
             upper=False
         )
-        
+
         # Calculate quadrance (Mahalanobis distance squared)
         quadrance = torch.sum(y**2, dim=-2).squeeze(-1) # Shape: (N, K)
-        
+
         # Calculate log determinant and normalisation constant
         log_det = 2 * torch.sum(torch.log(torch.diagonal(L, dim1=-2, dim2=-1)), dim=-1)
-        
+
         # Calculate log normalisation. `math.pi` avoids PyTorch scalar upcasting issues.
         pi_term = self.D * math.log(2 * math.pi)
         log_norm = -0.5 * (pi_term + log_det)
-        
+
         # Return log probabilities. unsqueeze(0) broadcasts log_norm across N
         return -0.5 * quadrance + log_norm.unsqueeze(0)
 
@@ -87,17 +92,17 @@ class TorchGMM:
             log_resp = weighted_log_probs - torch.logsumexp(weighted_log_probs, dim=1, keepdim=True)
             # Convert back to standard probability space [0, 1]
             resp = torch.exp(log_resp)
-            
+
             # M-Step
             # Calculate effective number of points in each cluster
-            N_k = resp.sum(dim=0) + 1e-6 
+            N_k = resp.sum(dim=0) + 1e-6
             # Update Priors (pi)
             self.pi = N_k / x.shape[0]
             # Update Means (mu)
             self.mu = torch.mm(resp.t(), x) / N_k.unsqueeze(1)
             # Update Covariances (sigma)
             diff = x.unsqueeze(1) - self.mu.unsqueeze(0)
-            self.sigma = torch.einsum('nki,nkj,nk->kij', diff, diff, resp) / N_k.view(-1, 1, 1)
+            self.sigma = torch.einsum("nki,nkj,nk->kij", diff, diff, resp) / N_k.view(-1, 1, 1)
 
 
     def score(self, x: torch.Tensor) -> torch.Tensor:
@@ -112,7 +117,7 @@ class TorchGMM:
         """
         x = x.to(self.dtype)
         log_probs = self._component_log_pdf(x)
-        
+
         return torch.logsumexp(log_probs + torch.log(self.pi), dim=1)
 
 
@@ -150,7 +155,7 @@ class TorchGMM:
         N = x.shape[0]
         # Number of free parameters for FULL covariance
         num_params = self.K * (self.D + self.D * (self.D + 1) / 2) + (self.K - 1)
-        
+
         log_likelihood = self.score(x).sum()
         bic = num_params * math.log(N) - 2 * log_likelihood
 
@@ -158,12 +163,12 @@ class TorchGMM:
 
 
 def train_gmm(
-    X_reduced: torch.Tensor, 
+    X_reduced: torch.Tensor,
     k: Optional[int] = None,
-    max_k: int = 30, 
-    n_init: int = 5, 
+    max_k: int = 30,
+    n_init: int = 5,
     n_iters: int = 100,
-    device: str = 'cuda'
+    device: str = "cuda"
 ) -> TorchGMM:
     """
     Trains a Gaussian Mixture Model on the provided data.
@@ -185,32 +190,32 @@ def train_gmm(
     Returns:
         The best fitted TorchGMM instance.
     """
-    logger.info(f"Running GMM-Fitting ...")
-    
+    logger.info("Running GMM-Fitting ...")
+
     # Determine the range of K to test
     k_range = [k] if k is not None else range(1, max_k + 1)
-    
+
     bic_history = []
     gmm_history = []
-    
+
     for current_k in k_range:
-        best_init_ll = float('-inf')
+        best_init_ll = float("-inf")
         best_init_gmm = None
-        
+
         # Run EM multiple times for this K to avoid local optima
         for attempt in range(n_init):
             gmm = TorchGMM(n_components=current_k, n_features=X_reduced.shape[1], device=device)
             gmm.fit(X_reduced, iters=n_iters)
-            
+
             # Score this specific initialisation
             with torch.no_grad():
                 ll = gmm.score(X_reduced).sum().item()
-            
+
             # Keep the best initialisation for this K
             if ll > best_init_ll:
                 best_init_ll = ll
                 best_init_gmm = gmm
-                
+
         # If we are doing a BIC sweep, calculate BIC and store
         if k is None:
             bic = best_init_gmm.calculate_bic(X_reduced)
@@ -221,20 +226,20 @@ def train_gmm(
             # We just wanted one specific K, return its best initialisation immediately
             logger.info(f"  GMM-Fit: Fixed K={current_k} (Best of {n_init} attempts)")
             return best_init_gmm
-        
+
     # If we get here, k was None and we did a full sweep. Find the elbow.
     bics = [b for (k_val, b) in bic_history]
-    
+
     # We use start_idx=0 since max_k is usually small, so we want to search the entire curve
     optimal_k_idx = find_robust_elbow(bics, start_idx=0) - 1
-    
+
     # Retrieve the best GMM at the elbow point
     best_overall_gmm = gmm_history[optimal_k_idx]
-            
+
     return best_overall_gmm
 
 
-def extract_species_labels(configs: List["ase.Atoms"]) -> List[str]:
+def extract_species_labels(configs: List[ase.Atoms]) -> List[str]:
     """
     Reads the 'species' key from each config's info dict and returns a sorted
     list of unique labels.
@@ -250,7 +255,7 @@ def extract_species_labels(configs: List["ase.Atoms"]) -> List[str]:
     """
     labels = []
     for at in configs:
-        sp = at.info.get('species')
+        sp = at.info.get("species")
         if sp is None:
             raise ValueError(
                 f"Config is missing 'species' in atoms.info. "
@@ -263,8 +268,8 @@ def extract_species_labels(configs: List["ase.Atoms"]) -> List[str]:
 
 
 def compute_descriptors(
-    configs: List["ase.Atoms"],
-    calc: "mace.calculators.MACECalculator",
+    configs: List[ase.Atoms],
+    calc: mace.calculators.MACECalculator,
     device: str,
     dtype: torch.dtype,
     atom_indices: Optional[Union[slice, List[int], np.ndarray]] = None,
@@ -293,7 +298,7 @@ def compute_descriptors(
         torch.from_numpy(calc.get_descriptors(at)[atom_indices]).to(device=device, dtype=dtype)
         for at in configs
     ]
-    
+
     A_max = max(t.shape[0] for t in raw)
     D = raw[0].shape[1]
 
@@ -325,7 +330,7 @@ def project_with_pca(
     Returns:
         Tuple ``(X_proj_padded, mask)``.
     """
-    logger.info(f"Projecting descriptors into PCA space...")
+    logger.info("Projecting descriptors into PCA space...")
 
     mask = torch.any(X_padded != 0, dim=-1)
     valid = X_padded[mask]
@@ -342,11 +347,11 @@ def project_with_pca(
 
 
 def evaluate_structure_metric(
-    gmm: TorchGMM, 
-    X_padded: torch.Tensor, 
-    pca_V: torch.Tensor, 
-    pca_mean: torch.Tensor, 
-    metric: str = 'log_likelihood'
+    gmm: TorchGMM,
+    X_padded: torch.Tensor,
+    pca_V: torch.Tensor,
+    pca_mean: torch.Tensor,
+    metric: str = "log_likelihood"
 ) -> torch.Tensor:
     """
     Unified evaluation of structure-level GMM metrics using min-pooling over atoms 
@@ -365,7 +370,7 @@ def evaluate_structure_metric(
     logger.info(f"Evaluating structure-level GMM metrics using {metric}...")
     device = X_padded.device
     dtype = X_padded.dtype
-    
+
     # Project into PCA space
     X_proj, mask = project_with_pca(X_padded, pca_V, pca_mean)
     n_structures, n_atoms_max = mask.shape
@@ -373,9 +378,9 @@ def evaluate_structure_metric(
 
     # Get atomic scores from the GMM
     with torch.no_grad():
-        if metric == 'log_likelihood':
+        if metric == "log_likelihood":
             atomic_scores_flat = gmm.score(valid_proj)
-        elif metric == 'posterior':
+        elif metric == "posterior":
             log_post = gmm.posterior_log_probs(valid_proj)
             max_log_post, _ = torch.max(log_post, dim=1)
             atomic_scores_flat = torch.exp(max_log_post)
@@ -384,12 +389,12 @@ def evaluate_structure_metric(
 
     # Scatter valid scores back to their original rectangular positions.
     # We initialise with +inf so padded slots are ignored by the downstream min-pool.
-    atomic_scores_2d = torch.full((n_structures, n_atoms_max), float('inf'), device=device, dtype=dtype)
+    atomic_scores_2d = torch.full((n_structures, n_atoms_max), float("inf"), device=device, dtype=dtype)
     atomic_scores_2d[mask] = atomic_scores_flat
-    
+
     # Min-pool across atoms for each structure
     structure_score, _ = torch.min(atomic_scores_2d, dim=1)
-    
+
     return structure_score
 
 
@@ -408,7 +413,7 @@ def evaluate_pool_uncertainty(best_gmm, pca_V, pca_mean, new_X_padded):
         torch.Tensor: 1D tensor of certainty scores (Higher score = More uncertain).
     """
     # Negative log-likelihood: high output = high uncertainty
-    return -evaluate_structure_metric(best_gmm, new_X_padded, pca_V, pca_mean, metric='log_likelihood')
+    return -evaluate_structure_metric(best_gmm, new_X_padded, pca_V, pca_mean, metric="log_likelihood")
 
 
 def evaluate_structure_cluster_probability(gmm, X_padded, pca_V, pca_mean):
@@ -425,7 +430,7 @@ def evaluate_structure_cluster_probability(gmm, X_padded, pca_V, pca_mean):
     Returns:
         torch.Tensor: 1D tensor of certainty per structure in [0, 1].
     """
-    return evaluate_structure_metric(gmm, X_padded, pca_V, pca_mean, metric='posterior')
+    return evaluate_structure_metric(gmm, X_padded, pca_V, pca_mean, metric="posterior")
 
 
 def get_certainty_threshold(train_uncertainty_scores, certainty_percentile=0.80):
@@ -442,16 +447,16 @@ def get_certainty_threshold(train_uncertainty_scores, certainty_percentile=0.80)
     """
     # Sort training scores in ascending order (most certain to least certain)
     sorted_train_scores, _ = torch.sort(train_uncertainty_scores)
-    
+
     # Find the index that corresponds to the percentile
     threshold_idx = int(certainty_percentile * len(sorted_train_scores))
-    
+
     # Ensure index is within bounds
     threshold_idx = min(threshold_idx, len(sorted_train_scores) - 1)
-    
+
     threshold_value = sorted_train_scores[threshold_idx].item()
     logger.info(f"Certainty threshold for {certainty_percentile*100}% quantile: {threshold_value}")
-    
+
     return threshold_value
 
 
@@ -470,7 +475,7 @@ def select_uncertain_structures(pool_uncertainty_scores, threshold):
     # Find all indices where the pool score is strictly greater than the threshold
     # (Greater score = higher uncertainty = lower certainty)
     selected_indices = torch.where(pool_uncertainty_scores > threshold)[0]
-    
+
     return selected_indices
 
 
@@ -479,14 +484,14 @@ def torch_pca_dynamic(X, threshold=0.95):
     # 1. Center the data
     mean = torch.mean(X, dim=0)
     X_centered = X - mean
-    
+
     # 2. SVD
     U, S, Vh = torch.linalg.svd(X_centered, full_matrices=False)
-    
+
     # 3. Variance Calculation
     explained_variance = (S**2) / (X.shape[0] - 1)
     total_var = torch.sum(explained_variance)
-    
+
     # Handle edge case: Data has no variance
     if total_var < 1e-10:
         logger.warning("Data has near-zero variance. Using 1 component.")
@@ -494,24 +499,24 @@ def torch_pca_dynamic(X, threshold=0.95):
 
     explained_variance_ratio = explained_variance / total_var
     cumulative_variance = torch.cumsum(explained_variance_ratio, dim=0)
-    
+
     # 4. Find n_components with a fallback
     # Look for the first index where threshold is met
     mask = cumulative_variance >= threshold
     indices = torch.where(mask)[0]
-    
+
     if len(indices) > 0:
         n_components = indices[0].item() + 1
     else:
         # Fallback: take all components if threshold is never reached
         n_components = X.shape[1]
         logger.warning(f"Threshold {threshold} not met. Using all {n_components} components.")
-    
+
     actual_variance = cumulative_variance[n_components-1].item()
     logger.info(f"Captured {actual_variance*100:.2f}% variance with {n_components} components.")
-    
+
     # 5. Project data
-    V = Vh[:n_components].T 
+    V = Vh[:n_components].T
     X_reduced = torch.mm(X_centered, V)
-    
+
     return X_reduced, V, mean, n_components

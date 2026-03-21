@@ -1,12 +1,20 @@
-from typing import List, Optional, Any, Union, Tuple
-import numpy as np
+from __future__ import annotations
+
 import logging
+from typing import Any, List, Optional, Tuple, Union
+
 import matplotlib.pyplot as plt
+import numpy as np
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.descriptors import quippy
-from wfl.select.by_descriptor import CUR_conf_global, prep_descs_and_exclude, write_selected_and_clean
-from wfl.select.flat_histogram import biased_select_conf
 from wfl.map import map as wfl_map
+from wfl.select.by_descriptor import (
+    CUR_conf_global,
+    prep_descs_and_exclude,
+    write_selected_and_clean,
+)
+from wfl.select.flat_histogram import biased_select_conf
+
 from mlipflow.data import setup_logging
 from mlipflow.utils import find_robust_elbow
 
@@ -51,7 +59,7 @@ class ConfigurationSelector:
             ConfigSet containing the configurations with calculated global descriptors.
         """
         self.desc_key = key
-        
+
         # Local Descriptors
         mols_desc_local = quippy.calculate(
             self.inputs,
@@ -63,7 +71,7 @@ class ConfigurationSelector:
 
         # Global Average Descriptors
         if write_xyz:
-            out = OutputSpec(f'{self.output_prefix}_global_desc.xyz')
+            out = OutputSpec(f"{self.output_prefix}_global_desc.xyz")
         else:
             out = OutputSpec()
 
@@ -85,13 +93,13 @@ class ConfigurationSelector:
             logger.warning("Global descriptors have not been calculated. Call 'calculate_global_descriptors' first.")
             raise RuntimeError("Global descriptors have not been calculated. Call 'calculate_global_descriptors' first.")
 
-    def greedy_fps_with_tracking(self, inputs: ConfigSet, outputs: OutputSpec, num: int, 
-                                 at_descs: Optional[np.ndarray] = None, 
+    def greedy_fps_with_tracking(self, inputs: ConfigSet, outputs: OutputSpec, num: int,
+                                 at_descs: Optional[np.ndarray] = None,
                                  at_descs_info_key: Optional[str] = None,
-                                 keep_descriptor_info: bool = True, 
+                                 keep_descriptor_info: bool = True,
                                  exclude_list: Optional[List[int]] = None,
-                                 prev_selected_descs: Optional[Union[List[Any], np.ndarray]] = None, 
-                                 O_N_sq: bool = False, 
+                                 prev_selected_descs: Optional[Union[List[Any], np.ndarray]] = None,
+                                 O_N_sq: bool = False,
                                  verbose: bool = False) -> Tuple[ConfigSet, List[float]]:
         """
         Full-feature Farthest Point Sampling (FPS) that captures distances while supporting all original WFL variables.
@@ -117,20 +125,20 @@ class ConfigurationSelector:
 
         if prev_selected_descs is not None and not isinstance(prev_selected_descs, np.ndarray):
             prev_selected_descs = np.asarray(prev_selected_descs)
-            
+
         # Default key if not provided
         if at_descs_info_key is None:
             at_descs_info_key = self.desc_key
 
         # Use the original WFL helper to handle exclusion and descriptor extraction
         at_descs, exclude_ind_list = prep_descs_and_exclude(inputs, at_descs, at_descs_info_key, exclude_list)
-        
+
         n_avail = at_descs.shape[1] - len(exclude_ind_list)
         if n_avail < num:
-            raise RuntimeError(f'Asked for {num} configs but only {n_avail} are available')
+            raise RuntimeError(f"Asked for {num} configs but only {n_avail} are available")
 
-        min_distances = [] 
-        max_similarity = 2.0 
+        min_distances = []
+        max_similarity = 2.0
 
         # --- BLOCK: O(N^2) Path ---
         if O_N_sq:
@@ -140,7 +148,7 @@ class ConfigurationSelector:
             else:
                 lhs = at_descs.T
                 prev_selected = []
-            
+
             similarities = np.matmul(lhs, at_descs)
             similarities[:, exclude_ind_list] = max_similarity + 1.0
 
@@ -155,7 +163,7 @@ class ConfigurationSelector:
             while len(selected_indices) < num:
                 sims_to_nearest = np.max(similarities[prev_selected + [s + len(prev_selected) for s in selected_indices]], axis=0)
                 farthest_available = np.argmin(sims_to_nearest)
-                
+
                 # Distance capture
                 val = 1.0 - sims_to_nearest[farthest_available]
                 min_distances.append(np.sqrt(2.0 * val) if val > 0 else 0.0)
@@ -180,7 +188,7 @@ class ConfigurationSelector:
             while len(selected_indices) < num:
                 sims_to_nearest = np.max(similarities_arr, axis=0)
                 farthest_available = np.argmin(sims_to_nearest)
-                
+
                 # Distance capture
                 val = 1.0 - sims_to_nearest[farthest_available]
                 min_distances.append(np.sqrt(2.0 * val) if val > 0 else 0.0)
@@ -268,12 +276,12 @@ class ConfigurationSelector:
             num=max_n,
             at_descs_info_key=self.desc_key
         )
-        
+
         n_optimal = find_robust_elbow(distances)
 
         # Round up to nearest multiple of 20
         n_optimal = round((1.1 * n_optimal) / 20) * 20
-        
+
         logger.info(f"Optimal N determined: {n_optimal}")
 
         return n_optimal, distances
@@ -308,9 +316,9 @@ class ConfigurationSelector:
         n_fps = n_optimal - n_cur - n_hist # Remainder to FPS
 
         # Distribute kwargs
-        cur_keys = ['at_descs', 'at_descs_info_key', 'kernel_exp', 'stochastic', 'rng', 
-                    'keep_descriptor_info', 'exclude_list', 'center', 'leverage_score_key']
-        hist_keys = ['kT', 'bins', 'by_bin', 'replace', 'verbose'] # info_field, num, rng are handled explicitly or via self
+        cur_keys = ["at_descs", "at_descs_info_key", "kernel_exp", "stochastic", "rng",
+                    "keep_descriptor_info", "exclude_list", "center", "leverage_score_key"]
+        hist_keys = ["kT", "bins", "by_bin", "replace", "verbose"] # info_field, num, rng are handled explicitly or via self
 
         cur_kwargs = {k: v for k, v in kwargs.items() if k in cur_keys}
         hist_kwargs = {k: v for k, v in kwargs.items() if k in hist_keys}
@@ -325,14 +333,14 @@ class ConfigurationSelector:
 
         # Combine selected descriptors for FPS exclusion/initialization
         prev_descs = []
-        
+
         # Cur
         for at in cur_selected:
             prev_descs.append(at.info[self.desc_key])
         # Hist
         for at in hist_selected:
              prev_descs.append(at.info[self.desc_key])
-        
+
         prev_descs = np.array(prev_descs)
 
         # 3. FPS
@@ -344,21 +352,21 @@ class ConfigurationSelector:
             at_descs_info_key=self.desc_key,
             prev_selected_descs=prev_descs
         )
-        OutputSpec(f'{self.output_prefix}_final_selection.xyz').write(ConfigSet([cur_selected, hist_selected, fps_selected]))
-        
+        OutputSpec(f"{self.output_prefix}_final_selection.xyz").write(ConfigSet([cur_selected, hist_selected, fps_selected]))
+
         return cur_selected, hist_selected, fps_selected
 
 
     def plot_elbow(self, distances, n_optimal):
         plt.figure(figsize=(6, 4))
-        plt.plot(range(1, len(distances) + 1), distances, label='FPS Distance')
-        plt.axvline(x=n_optimal, color='r', linestyle='--', label=f'Optimal N = {n_optimal}')
-        plt.xlabel('Number of Configurations')
-        plt.ylabel('Distance')
-        plt.title('Elbow Test for Optimal Selection Number')
+        plt.plot(range(1, len(distances) + 1), distances, label="FPS Distance")
+        plt.axvline(x=n_optimal, color="r", linestyle="--", label=f"Optimal N = {n_optimal}")
+        plt.xlabel("Number of Configurations")
+        plt.ylabel("Distance")
+        plt.title("Elbow Test for Optimal Selection Number")
         plt.legend()
         plt.grid(True)
-        plt.savefig(f'{self.output_prefix}_elbow_plot.png')
+        plt.savefig(f"{self.output_prefix}_elbow_plot.png")
         plt.close()
 
 
@@ -378,12 +386,12 @@ class ConfigurationSelector:
             Tuple of selected configurations.
         """
         self._ensure_descriptors_calculated()
-        
+
         if n_optimal is None:
             n_optimal, distances = self.select_optimal_n(max_n=n_max)
             #self.plot_elbow(distances, n_optimal)
-        
+
         if info_field is None:
             raise ValueError("info_field is required for the histogram selection part of the two-stage strategy.")
-            
+
         return self.select_final(n_optimal, info_field=info_field, **kwargs)

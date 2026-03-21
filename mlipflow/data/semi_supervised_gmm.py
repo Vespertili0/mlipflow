@@ -1,24 +1,25 @@
+from __future__ import annotations
+
 import logging
 from collections import Counter
-from typing import List, Tuple, Union, Optional
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import torch
 from ase import Atoms
-from wfl.configset import ConfigSet
 from mace.calculators import MACECalculator
+from wfl.configset import ConfigSet
 
-from mlipflow.strategies.mlip import MACEModel
 from mlipflow.data import setup_logging
 from mlipflow.data.gmm import (
-    TorchGMM, 
-    torch_pca_dynamic,
-    extract_species_labels,
     compute_descriptors,
-    project_with_pca,
     evaluate_structure_cluster_probability,
-    train_gmm
+    extract_species_labels,
+    project_with_pca,
+    torch_pca_dynamic,
+    train_gmm,
 )
+from mlipflow.strategies.mlip import MACEModel
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -71,7 +72,7 @@ class GMMLabelChecker:
         pool_file: Union[str, List[str]],
         mlip_strategy: MACEModel,
         atom_indices: Optional[Union[slice, List[int], np.ndarray]] = None,
-        device: str = 'cpu',
+        device: str = "cpu",
         high_certainty: float = 0.99,
         final_certainty: float = 0.95,
         pca_threshold: float = 0.98,
@@ -108,10 +109,10 @@ class GMMLabelChecker:
             X_train_flat, threshold=self.pca_threshold
         )
         self.gmm_0 = train_gmm(
-            X_train_reduced, 
-            k=self.K, 
-            n_init=5, 
-            n_iters=self.gmm_iters, 
+            X_train_reduced,
+            k=self.K,
+            n_init=5,
+            n_iters=self.gmm_iters,
             device=self.device
         )
 
@@ -188,10 +189,10 @@ class GMMLabelChecker:
             X_combined_flat, threshold=self.pca_threshold
         )
         self.gmm_1 = train_gmm(
-            X_combined_reduced, 
-            k=self.K, 
-            n_init=5, 
-            n_iters=self.gmm_iters, 
+            X_combined_reduced,
+            k=self.K,
+            n_init=5,
+            n_iters=self.gmm_iters,
             device=self.device
         )
 
@@ -204,28 +205,28 @@ class GMMLabelChecker:
             dict: Mapping from component index (int) to species label (str).
         """
         logger.info("Mapping GMM components to species labels...")
-        
+
         # Project training configs into final PCA space
         X_train_proj, mask_train = project_with_pca(
             self.X_train_padded, self.pca_V_1, self.pca_mean_1
         )
-        
+
         # Get log posteriors for all training atoms
         valid_train_proj = X_train_proj[mask_train]
         log_post = self.gmm_1.posterior_log_probs(valid_train_proj)
         preds = torch.argmax(log_post, dim=1)
-        
+
         # Get true species labels for each training atom
         # (Assuming all atoms in a structure have the same species label as per extract_species_labels)
         true_labels = []
         for i, config in enumerate(self.train_configs):
-            species = config.info['species']
+            species = config.info["species"]
             num_atoms = len(config)
             true_labels.extend([species] * num_atoms)
-        
+
         # Count occurences of (species, comp) pairs
         counts = Counter(zip(true_labels, preds.tolist()))
-            
+
         # For each species, find the dominant component
         species_to_comp = {}
         for species in self.species_labels:
@@ -237,10 +238,10 @@ class GMMLabelChecker:
                     max_count = count
                     best_comp = comp
             species_to_comp[species] = best_comp
-            
+
         # Reverse mapping: component -> species
         comp_to_species = {v: k for k, v in species_to_comp.items()}
-        
+
         # Handle any components that weren't the "best" for any species
         # (Though with K fixed to species count, it should be 1-to-1 ideally)
         for comp in range(self.K):
@@ -254,7 +255,7 @@ class GMMLabelChecker:
                         max_count = count
                         best_species = species
                 comp_to_species[comp] = best_species
-                
+
         logger.info(f"Component and species map: {comp_to_species}")
         return comp_to_species
 
@@ -280,17 +281,17 @@ class GMMLabelChecker:
         pool_certainty_1 = evaluate_structure_cluster_probability(
             self.gmm_1, self.X_pool_padded, self.pca_V_1, self.pca_mean_1
         )
-        
+
         # Predict components for all pool atoms
         valid_pool_proj = X_pool_proj_1[mask_pool_1]
         log_post_pool = self.gmm_1.posterior_log_probs(valid_pool_proj)
         atom_preds = torch.argmax(log_post_pool, dim=1)
-        
+
         # Reconstruct structure-level predictions (majority vote over atoms)
         num_atoms_list = mask_pool_1.sum(dim=1).int().tolist()
         split_preds = torch.split(atom_preds, num_atoms_list)
         struct_preds = [
-            torch.mode(chunk).values.item() if len(chunk) > 0 else -1 
+            torch.mode(chunk).values.item() if len(chunk) > 0 else -1
             for chunk in split_preds
         ]
 
@@ -303,16 +304,16 @@ class GMMLabelChecker:
 
         certain_configs = []
         uncertain_configs = []
-        
+
         for config, comp, certainty in zip(self.pool_configs, struct_preds, pool_certainty_1.tolist()):
             # Attach certainty score
-            config.info['gmm_certainty'] = certainty
-            
+            config.info["gmm_certainty"] = certainty
+
             if certainty >= self.final_certainty:
-                config.info['species'] = comp_to_species.get(comp, "unknown")
+                config.info["species"] = comp_to_species.get(comp, "unknown")
                 certain_configs.append(config)
             else:
-                config.info['species'] = "unknown"
+                config.info["species"] = "unknown"
                 uncertain_configs.append(config)
 
         logger.info(
@@ -320,9 +321,9 @@ class GMMLabelChecker:
             f"Retained {len(certain_configs)} certain configs, "
             f"{len(uncertain_configs)} uncertain configs (labelled 'unknown')."
         )
-        
+
         # Log distribution of assigned labels
-        label_counts = Counter(config.info.get('species', 'missing') for config in self.pool_configs)
+        label_counts = Counter(config.info.get("species", "missing") for config in self.pool_configs)
         logger.info(f"Assigned species distribution: {dict(label_counts)}")
 
         return certain_configs, uncertain_configs, pool_certainty_1
@@ -345,7 +346,7 @@ class GMMLabelChecker:
         high_certainty_idx = self._step3_high_certainty_filter()
         self._step4_refit(high_certainty_idx)
         certain_configs, uncertain_configs, certainty_scores = self._step5_relabel()
-        
+
         logger.info(
             f"Pipeline complete. {len(certain_configs)} certain and "
             f"{len(uncertain_configs)} uncertain configurations."

@@ -1,18 +1,23 @@
-import os, itertools, json, torch
+from __future__ import annotations
+
+import itertools
+import json
+import os
 from abc import ABC, abstractmethod
 
-from torch_dftd.torch_dftd3_calculator import TorchDFTD3Calculator
+import torch
 from ase.calculators.mixing import SumCalculator
-
-from universalSOAP import SOAP_hypers
-from quippy.potential import Potential
-from wfl.fit.gap.multistage import fit as multi_gap_fit
-from wfl.configset import ConfigSet, OutputSpec
-from wfl.fit.mace import fit as mace_fit
 from mace.calculators import MACECalculator
+from quippy.potential import Potential
+from torch_dftd.torch_dftd3_calculator import TorchDFTD3Calculator
+from universalSOAP import SOAP_hypers
+from wfl.configset import ConfigSet
+from wfl.fit.gap.multistage import fit as multi_gap_fit
+from wfl.fit.mace import fit as mace_fit
 
-from mlipflow.utils import prepare_remote
 from mlipflow.adapters.wflio import GAPCalc
+from mlipflow.utils import prepare_remote
+
 #####################################################################
 
 # Base Strategy class for MLIP approach
@@ -32,7 +37,7 @@ class MLIPStrategy(ABC):
             mlip_name (str): Name of the MLIP.
             run_mode (str): Run mode. Must be 'local' or 'remote'.
         """
-        assert run_mode in ['local', 'remote'], 'run_mode is "local" or "remote"'
+        assert run_mode in ["local", "remote"], 'run_mode is "local" or "remote"'
         self.run_mode = run_mode
         self.mlip_name = mlip_name
 
@@ -48,8 +53,7 @@ class MLIPStrategy(ABC):
         Returns:
             tuple: Calculator configuration.
         """
-        pass  
-    
+
     @abstractmethod
     def fit_new_model(self, in_file: str, model_name: str, run_dir: str) -> None:
         """
@@ -60,7 +64,6 @@ class MLIPStrategy(ABC):
             model_name (str): Name of the model.
             run_dir (str): Run directory.
         """
-        pass
 
 
 # MACE strategy class
@@ -74,7 +77,7 @@ class MACEModel(MLIPStrategy):
                         If 'remote', the MACE model is submitted to run via wfl-RemoteInfo object.
     
     """
-    def __init__(self, mlip_name: str, mace_config: str | None = None, run_mode: str = 'remote') -> None:
+    def __init__(self, mlip_name: str, mace_config: str | None = None, run_mode: str = "remote") -> None:
         """
         Initialise the MACEModel.
 
@@ -84,12 +87,12 @@ class MACEModel(MLIPStrategy):
             run_mode (str): Run mode ('local' or 'remote'). Defaults to 'remote'.
         """
         super().__init__(run_mode=run_mode, mlip_name=mlip_name)
-        self.mlip_prefix = 'MACE_'
+        self.mlip_prefix = "MACE_"
         self.mace_config = mace_config
         self.model_file = f"{mlip_name}.model"
 
-    def get_calculator(self, job_name: str, dispersion: bool = True, dtype: str = 'float32', n_cores: int = 1,
-                       max_time: str = '00:10:00', num_inputs_per_queued_job: int = 4) -> tuple:
+    def get_calculator(self, job_name: str, dispersion: bool = True, dtype: str = "float32", n_cores: int = 1,
+                       max_time: str = "00:10:00", num_inputs_per_queued_job: int = 4) -> tuple:
         """
         It returns the MACE-calculator as tuple with the ase-calculator class, arguments and keyword arguments.
         Creates the remote_info object if run_mode is 'remote'.
@@ -103,50 +106,50 @@ class MACEModel(MLIPStrategy):
         Returns:
             tuple: Calculator configuration.
         """
-        if self.run_mode == 'local':
+        if self.run_mode == "local":
             self.remote_info = None
 
         elif self.run_mode == "remote":
             self.remote_info = prepare_remote(
-                max_time=max_time, 
+                max_time=max_time,
                 n_cores=n_cores,
                 num_inputs_per_queued_job=num_inputs_per_queued_job,
                 job_name=job_name,
 #                pre_cmds=['export WFL_NUM_PYTHON_SUBPROCESSES=4']
 #                sys_name='local_mace'
             )
-              
+
         if dispersion == False:
             calculator = (
                 MACECalculator,
-                [], 
+                [],
                 {
-                    'model_paths': os.path.abspath(self.model_file),
-                    'device': 'cpu',
-                    'default_dtype': dtype,
+                    "model_paths": os.path.abspath(self.model_file),
+                    "device": "cpu",
+                    "default_dtype": dtype,
                 #    'dispersion': dispersion
                 }
             )
-        
+
         elif dispersion == True:
             mace_calc = MACECalculator(
                 model_paths=os.path.abspath(self.model_file),
-                device='cpu',
+                device="cpu",
                 default_dtype=dtype,
             )
             dftd3_calc = TorchDFTD3Calculator(
-                damping='bj',   #"zero", "bj", "zerom", "bjm"
+                damping="bj",   #"zero", "bj", "zerom", "bjm"
                 old=False,      # False = use DFTD3 method, True = DFTD2
-                device='cpu',
+                device="cpu",
                 dtype=torch.float32 if dtype == "float32" else torch.float64
             )
-            calculator = (SumCalculator, [], {'calcs': [mace_calc, dftd3_calc]})
-            
-        return calculator 
-    
+            calculator = (SumCalculator, [], {"calcs": [mace_calc, dftd3_calc]})
 
-    def fit_new_model(self, in_file: str, test_configs: str, ref_property_prefix: str = 'DFT_',
-                      seed: int = 123, restart: bool = False, n_cores: int = 128, max_time: str = '10:00:00') -> None:
+        return calculator
+
+
+    def fit_new_model(self, in_file: str, test_configs: str, ref_property_prefix: str = "DFT_",
+                      seed: int = 123, restart: bool = False, n_cores: int = 128, max_time: str = "10:00:00") -> None:
         """
         Run the wfl.fit.mace.fit function.
 
@@ -165,32 +168,32 @@ class MACEModel(MLIPStrategy):
         # load MACE fitting parameters from JSON file
         with open(self.mace_config) as param_json:
             mace_params = json.load(param_json)
-        
+
         # set random seed and restart option
-        mace_params['seed'] = seed
+        mace_params["seed"] = seed
         if restart:
-            mace_params['restart_latest'] = None
+            mace_params["restart_latest"] = None
 
         # run the MACE fitting
         mace_fit(
             fitting_configs=ConfigSet(in_file),
             test_configs=ConfigSet(test_configs),
-            mace_name=self.mlip_name, 
+            mace_name=self.mlip_name,
             mace_fit_params=mace_params,
             ref_property_prefix=ref_property_prefix,
-        #    run_dir=run_dir,            
+        #    run_dir=run_dir,
         #    valid_configs=ConfigSet(valid_configs),
             remote_info=prepare_remote(
                 max_time=max_time,
                 n_cores=n_cores,
                 num_inputs_per_queued_job=1,
-                job_name='MACEfit',
-                sys_name='local_mace'
+                job_name="MACEfit",
+                sys_name="local_mace"
             )
         )
-        
 
-# GAP strategy class    
+
+# GAP strategy class
 class GAPModel(MLIPStrategy):
     """
     GAP strategy class for MLIPFlow. It defines the interface for GAP implemented in the MLIPFlow package.
@@ -201,7 +204,7 @@ class GAPModel(MLIPStrategy):
                         If 'remote', the GAP model is submitted to run via wfl-RemoteInfo object.
     
     """
-    def __init__(self, mlip_file: str, run_mode: str = 'remote') -> None:
+    def __init__(self, mlip_file: str, run_mode: str = "remote") -> None:
         """
         Initialise the GAPModel.
 
@@ -210,7 +213,7 @@ class GAPModel(MLIPStrategy):
             run_mode (str): Run mode ('local' or 'remote'). Defaults to 'remote'.
         """
         super().__init__(run_mode=run_mode, mlip_file=mlip_file)
-        self.mlip_prefix = 'GAP'
+        self.mlip_prefix = "GAP"
 
         # defining GAP-specific variables
         self.Zs = [1, 6, 8, 29]
@@ -248,30 +251,30 @@ class GAPModel(MLIPStrategy):
         Returns:
             tuple: Calculator configuration.
         """
-        if self.run_mode == 'local':
+        if self.run_mode == "local":
             calculator = (Potential, [], {
-                'param_filename': self.mlip_file,
-                'calc_args': 'local_gap_variance'}
+                "param_filename": self.mlip_file,
+                "calc_args": "local_gap_variance"}
             )
             self.remote_info = None
-    
-        elif self.run_mode == 'remote':
+
+        elif self.run_mode == "remote":
             calculator = (GAPCalc, [], {
-                'keep_files': None,
-                'rundir_prefix': 'GAP_',
-                'param_filename': os.path.abspath(self.mlip_file),
-                'calc_args':'local_gap_variance'
+                "keep_files": None,
+                "rundir_prefix": "GAP_",
+                "param_filename": os.path.abspath(self.mlip_file),
+                "calc_args":"local_gap_variance"
                 }
             )
-            
+
             self.remote_info = prepare_remote(
-                max_time='02:00:00', 
+                max_time="02:00:00",
                 n_cores=1,
                 num_inputs_per_queued_job=5,
                 job_name=job_name,
-                pre_cmds=['export OMP_NUM_THREADS=1']
+                pre_cmds=["export OMP_NUM_THREADS=1"]
             )
-            
+
         return calculator
 
 
@@ -295,13 +298,13 @@ class GAPModel(MLIPStrategy):
             fitting_configs=in_config,
             GAP_name=model_name,
             params=gap_params,
-            run_dir=run_dir, 
+            run_dir=run_dir,
             ref_property_prefix="DFT_"
             )
-        return None    
+        return
 
 
-    def _get_multistage_params(self, stage_list: list[str] = ['2B','SOAP']) -> dict:
+    def _get_multistage_params(self, stage_list: list[str] = ["2B","SOAP"]) -> dict:
         """
         Get the multistage GAP parameters.
 
@@ -314,80 +317,80 @@ class GAPModel(MLIPStrategy):
         # default settings for Two-Body
         atom_list = list(itertools.combinations_with_replacement(self.Zs, 2))
         desc_2B = {
-            'distance_Nb': True, 
-            'order': 2, 
-            'cutoff':5.0
+            "distance_Nb": True,
+            "order": 2,
+            "cutoff":5.0
             }
         fit_2B = {
-            'n_sparse':50,
-            'theta_uniform': 1.0,
-            'covariance_type': 'ard_se',
-            'sparse_method': 'uniform'
+            "n_sparse":50,
+            "theta_uniform": 1.0,
+            "covariance_type": "ard_se",
+            "sparse_method": "uniform"
             }
-        
+
         # default settings for Many-body SOAPs
         hypers = SOAP_hypers(
-            Zs=self.Zs, 
-            length_scales=self.length_scales, 
-            spacing=1.5, 
-            no_extra_inner=True, 
+            Zs=self.Zs,
+            length_scales=self.length_scales,
+            spacing=1.5,
+            no_extra_inner=True,
             no_extra_outer=True
             )
         desc_MB = {
-            'soap': True,
-            'n_max': 9,
-            'l_max': 3
+            "soap": True,
+            "n_max": 9,
+            "l_max": 3
             }
         fit_MB = {
-            'zeta': 4,
-            'covariance_type': 'dot_product',
-            'sparse_method': 'CUR_POINTS'
+            "zeta": 4,
+            "covariance_type": "dot_product",
+            "sparse_method": "CUR_POINTS"
             }
 
         stages = []
         for stage in stage_list:
-            stage_dict = {'error_scale_factor': (lambda x: 1.0 if 'SOAP' in x else 10.0)(stage)}
+            stage_dict = {"error_scale_factor": (lambda x: 1.0 if "SOAP" in x else 10.0)(stage)}
             stage_desc = list()
-        # prepare Two-Body      
-            if '2B' in stage:
+        # prepare Two-Body
+            if "2B" in stage:
                 for pair in atom_list:
                     pair_dict = {}
                     basic_2B = desc_2B.copy()
-                    add_2B = {'Z': [pair[0], pair[1]]}
+                    add_2B = {"Z": [pair[0], pair[1]]}
                     basic_2B.update(add_2B)
-                    pair_dict.update({'descriptor': basic_2B})
-                    pair_dict.update({'fit': fit_2B, 'add_species': False})
+                    pair_dict.update({"descriptor": basic_2B})
+                    pair_dict.update({"fit": fit_2B, "add_species": False})
                     stage_desc.append(pair_dict)
 
         # prepare Many-Body SOAPs
-            if 'SOAP' in stage:    
+            if "SOAP" in stage:
                 for Z in self.Zs:
                     Z_dict = {}
                     basic_SOAP = desc_MB.copy()
                     basic_SOAP.update(hypers[Z][0])
-                    basic_SOAP.update({'n_species': len(self.Zs), 'Z': Z}) , # 'delta': 0.03,
-                    basic_SOAP.update({'species_Z': self.Zs})
-                    Z_dict.update({'descriptor': basic_SOAP})
-                    
+                    basic_SOAP.update({"n_species": len(self.Zs), "Z": Z}) , # 'delta': 0.03,
+                    basic_SOAP.update({"species_Z": self.Zs})
+                    Z_dict.update({"descriptor": basic_SOAP})
+
                     fit_SOAP = fit_MB.copy()
-                    fit_SOAP.update({'n_sparse': (lambda x: 100 if x!= 29 else 50)(Z)}) #!!! DEBUGGING
-                    Z_dict.update({'fit': fit_SOAP})
-                    Z_dict.update({'add_species': False})
+                    fit_SOAP.update({"n_sparse": (lambda x: 100 if x!= 29 else 50)(Z)}) #!!! DEBUGGING
+                    Z_dict.update({"fit": fit_SOAP})
+                    Z_dict.update({"add_species": False})
                     stage_desc.append(Z_dict)
 
-            stage_dict.update({'descriptors': stage_desc})
+            stage_dict.update({"descriptors": stage_desc})
             stages.append(stage_dict)
-        
+
         params_dict = {
-            'default_sigma': [0.001, 0.01, 0.0, 0.0],
-            'sparse_jitter': 1e-08,
-            'do_copy_at_file': False,
-            'sparse_separate_file': False,
-            'energy_parameter_name': 'DFT_energy',
-            'force_parameter_name': 'DFT_forces'
+            "default_sigma": [0.001, 0.01, 0.0, 0.0],
+            "sparse_jitter": 1e-08,
+            "do_copy_at_file": False,
+            "sparse_separate_file": False,
+            "energy_parameter_name": "DFT_energy",
+            "force_parameter_name": "DFT_forces"
             }
-        
-        multi_params = {'stages': stages,
-                        'gap_params': params_dict}
-        
+
+        multi_params = {"stages": stages,
+                        "gap_params": params_dict}
+
         return multi_params

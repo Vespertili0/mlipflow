@@ -1,22 +1,30 @@
-import numpy as np
-from ase.io import write
-import torch
+from __future__ import annotations
+
 import logging
-from mlipflow.data import setup_logging
+
+import numpy as np
+import torch
+from ase.io import write
+from mace.calculators import MACECalculator
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.utils.misc import atoms_to_list
-from mlipflow.strategies.mlip import MACEModel
+
+from mlipflow.data import setup_logging
 from mlipflow.data.gmm import (
-    train_gmm, evaluate_pool_uncertainty, torch_pca_dynamic,
-    get_certainty_threshold, select_uncertain_structures, compute_descriptors
+    compute_descriptors,
+    evaluate_pool_uncertainty,
+    get_certainty_threshold,
+    select_uncertain_structures,
+    torch_pca_dynamic,
+    train_gmm,
 )
-from mace.calculators import MACECalculator
+from mlipflow.strategies.mlip import MACEModel
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
 
-def split_configset_by_force_agreement(in_file, out_file, pair_tuple, main_suffix='train', side_suffix='test') -> None:
+def split_configset_by_force_agreement(in_file, out_file, pair_tuple, main_suffix="train", side_suffix="test") -> None:
     """
     Split a ConfigSet into two parts based on force agreement between two force keys.
     
@@ -39,14 +47,14 @@ def split_configset_by_force_agreement(in_file, out_file, pair_tuple, main_suffi
         Suffix for the side split output file.
     
     """
-    assert len(pair_tuple) == 2, 'need two force keys to compare'
+    assert len(pair_tuple) == 2, "need two force keys to compare"
 
     configs = atoms_to_list(ConfigSet(in_file))
     # get MAE for forces and rank
     force_mae = []
     for at in configs:
         force_mae.append(
-            np.mean(np.abs(at.arrays[f'{pair_tuple[0]}forces'] - at.arrays[f'{pair_tuple[1]}forces'])))
+            np.mean(np.abs(at.arrays[f"{pair_tuple[0]}forces"] - at.arrays[f"{pair_tuple[1]}forces"])))
     n_total = len(force_mae)
 
     # find top 20% group using quantile
@@ -69,22 +77,22 @@ def split_configset_by_force_agreement(in_file, out_file, pair_tuple, main_suffi
     # pull atoms by indices
     main_at = [list(configs)[idx] for idx in main_chunk]
     side_at = [list(configs)[idx] for idx in side_chunk]
-    
+
     for atoms, suffix in zip([main_at, side_at], [main_suffix, side_suffix]):
-        write(f'{suffix}_{out_file}', atoms)
+        write(f"{suffix}_{out_file}", atoms)
 
 
 def select_by_uncertainty(
-    train_file: str, 
-    pool_file: str, 
-    out_file: str, 
+    train_file: str,
+    pool_file: str,
+    out_file: str,
     mlip_strategy: MACEModel,
-    certainty_threshold: float = 0.8, 
+    certainty_threshold: float = 0.8,
     pca_variance_threshold: float = 0.95,
     max_gmm_components: int = 30,
     gmm_n_init: int = 5,
-    device: str = 'cpu',
-    dtype: "torch.dtype" = None,
+    device: str = "cpu",
+    dtype: torch.dtype = None,
 ) -> None:
     """
     Select new structures from a pool based on GMM uncertainty.
@@ -130,39 +138,39 @@ def select_by_uncertainty(
 
     train_configs = atoms_to_list(ConfigSet(train_file))
     pool_configs = list(ConfigSet(pool_file))
-    
+
     # Prepare descriptors
     train_padded, train_flat = compute_descriptors(train_configs, mlip_calc, device, dtype)
     pool_padded, _ = compute_descriptors(pool_configs, mlip_calc, device, dtype)
 
     # Run PCA on training data
     X_train_reduced, pca_V, pca_mean, n_pca_components = torch_pca_dynamic(
-        X=train_flat, 
+        X=train_flat,
         threshold=pca_variance_threshold
     )
-    
+
     # Fit GMM & evaluate uncertainty cutoff
     best_gmm = train_gmm(
-        X_reduced=X_train_reduced, 
+        X_reduced=X_train_reduced,
         k=None,
-        max_k=max_gmm_components, 
-        n_init=gmm_n_init, 
+        max_k=max_gmm_components,
+        n_init=gmm_n_init,
         device=device
     )
     train_uncertainty = evaluate_pool_uncertainty(best_gmm, pca_V, pca_mean, train_padded)
     gmm_threshold = get_certainty_threshold(
-        train_uncertainty, 
+        train_uncertainty,
         certainty_percentile=certainty_threshold
     )
-    
+
     # Identify pool members with uncertainty below threshold (higher score = more uncertain)
     pool_uncertainty = evaluate_pool_uncertainty(best_gmm, pca_V, pca_mean, pool_padded)
     uncertain_frames_tensor = select_uncertain_structures(pool_uncertainty, gmm_threshold)
 
     # Isolate uncertain frames
-    selected_configs = [pool_configs[frame_idx] for frame_idx in uncertain_frames_tensor]   
+    selected_configs = [pool_configs[frame_idx] for frame_idx in uncertain_frames_tensor]
     logger.info(f"Selected {len(selected_configs)} configurations based on uncertainty threshold {gmm_threshold}")
-    
+
     OutputSpec(out_file).write(ConfigSet(selected_configs))
 
-    return None
+    return
