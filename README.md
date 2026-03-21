@@ -1,10 +1,10 @@
-# mlipflow 🦇
+# mlipflow
 
 [![Tests](https://github.com/Vespertili0/mlipflow/actions/workflows/tests.yaml/badge.svg)](https://github.com/Vespertili0/mlipflow/actions/workflows/tests.yaml)
 [![Documentation](https://github.com/Vespertili0/mlipflow/actions/workflows/docs.yaml/badge.svg)](https://github.com/Vespertili0/mlipflow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/downloads/)
-[![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+[![codecov](https://img.shields.io/codecov/c/github/Vespertili0/mlipflow)](https://codecov.io/gh/Vespertili0/mlipflow)
 
 **Automating Reaction Pathway Exploration with Machine-Learned Interatomic Potentials (MLIPs)**
 
@@ -71,7 +71,7 @@ learner = ActiveLearner(
 learner.run_iteration(n_iter=1)
 ```
 
-## 🏗️ Architecture
+## Architecture
 
 ```mermaid
 classDiagram
@@ -127,17 +127,5 @@ Run the test suite using `pytest`:
 python -m pytest tests/
 ```
 
-## 🤝 Contributing
-Contributions are welcome! Please ensure all code passes `ruff` linting and follows the NumPy docstring convention.
-
-1.  Fork the repository.
-2.  Create a feature branch (`git checkout -b feature/amazing-feature`).
-3.  Commit your changes (`git commit -m 'Add amazing feature'`).
-4.  Push to the branch (`git push origin feature/amazing-feature`).
-5.  Open a Pull Request.
-
 ## 📄 License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 📧 Contact
-Project Link: [https://github.com/Vespertili0/mlipflow](https://github.com/Vespertili0/mlipflow)

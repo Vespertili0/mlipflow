@@ -84,6 +84,14 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
                 "descriptor_string": "soap n_species=4 species_Z={1 6 8 29} l_max=6 n_max=8 cutoff=3.5 atom_sigma=0.5 zeta=6",
                 "info_field": "MACE_energy",
                 "n_optimal": 5
+            },
+            'relabel_check':{
+                'reference_configs': config_file,
+                'idx_org': slice(64, None),
+                'idx_h': [75, 76],
+                'sigma_isomer': 50,
+                'sigma_reaction': 10,
+                'threshold_reaction': 0.85
             }
         }
 
