@@ -90,6 +90,12 @@ class QECalculator(QChemStrategy):
         self.basic_params = basic_params
         self.pseudo_dir = pseudo_dir
         self.pseudopotentials = pseudopots
+        self.ecut_eV = None
+        self.kpts = None
+        self.calc_type = None
+        self.dipole = None
+        self.dftd3 = None
+        self.spin = None
 
     def get_calculator(
         self,
@@ -118,13 +124,24 @@ class QECalculator(QChemStrategy):
         Returns:
             tuple: (Espresso class, [], dict with options)
         """
+        self.ecut_eV = ecut_eV
+        self.kpts = kpts
+        self.calc_type = calc_type
+        self.dipole = dipole
+        self.dftd3 = dftd3
+        self.spin = spin
+
         # prepare remote settings based on calculation type
-        assert calc_type in ["scf", "relax"], f"Unknown calculation type: {calc_type}"
+        assert self.calc_type in ["scf", "relax"], (
+            f"Unknown calculation type: {self.calc_type}"
+        )
         remote_settings = {
             "scf": {
-                "max_time": "02:00:00" if spin else "01:25:00",
-                "n_cores": 48 if spin else 32,
-                "num_inputs_per_queued_job": 1 if spin else num_inputs_per_queued_job,
+                "max_time": "02:00:00" if self.spin else "01:25:00",
+                "n_cores": 48 if self.spin else 32,
+                "num_inputs_per_queued_job": 1
+                if self.spin
+                else num_inputs_per_queued_job,
                 "job_name": job_name,
                 "sys_name": "local_qe",
             },
@@ -136,23 +153,25 @@ class QECalculator(QChemStrategy):
                 "sys_name": "local_qe",
             },
         }
-        self.remote_info = prepare_remote(**remote_settings[calc_type])
-        self.max_time_sec = time_str_to_seconds(remote_settings[calc_type]["max_time"])
+        self.remote_info = prepare_remote(**remote_settings[self.calc_type])
+        self.max_time_sec = time_str_to_seconds(
+            remote_settings[self.calc_type]["max_time"]
+        )
         self.max_time_sec += 300  # add 5 minutes buffer
 
         # prepare input-data for QE
-        input_data = self._prepare_params(ecut_eV=ecut_eV, calc=calc_type)
+        input_data = self._prepare_params()
         assert input_data, "parameters for QE missing"
 
         # update calculation type
-        input_data["control"]["calculation"] = calc_type
+        input_data["control"]["calculation"] = self.calc_type
 
-        if calc_type == "scf":
+        if self.calc_type == "scf":
             for para in ["nstep", "etot_conv_thr", "forc_conv_thr"]:
                 input_data["control"].pop(para)
 
         # modify default-input removing Dipole or D3-correction
-        if not dipole:
+        if not self.dipole:
             dipole_paras = {
                 "system": ["eamp", "edir", "emaxpos", "eopreg"],
                 "control": ["dipfield", "tefield"],
@@ -161,13 +180,13 @@ class QECalculator(QChemStrategy):
                 for para in dipole_paras.get(key):
                     input_data[key].pop(para)
 
-        if not dftd3:
+        if not self.dftd3:
             dftd3_paras = {"system": ["dftd3_version", "vdw_corr"]}
             for key in dftd3_paras:
                 for para in dftd3_paras.get(key):
                     input_data[key].pop(para)
 
-        if spin:
+        if self.spin:
             input_data["system"].update(
                 {
                     "nbnd": 628,
@@ -188,29 +207,28 @@ class QECalculator(QChemStrategy):
                 "profile": profile,
                 "input_data": input_data,
                 "pseudopotentials": self.pseudopotentials,
-                "kpts": kpts,
+                "kpts": self.kpts,
             },
         )
 
-    def _prepare_params(self, _ecut_eV: int, _calc: str, level: str = "fine") -> dict:
+    def _prepare_params(self, level: str = "fine") -> dict:
         """
         Prepare input-file parameters for Quantum Espresso (QE) pw.x computation.
+        Hardcoded values for SSSP-efficiency pseudopotentials.
 
         Args:
-            ecut_eV (int): Energy cutoff in eV.
-            calc (str): Type of calculation, 'scf' or 'relax'.
             level (str): Level of precision, 'fine' or 'normal'. Defaults to 'fine'.
 
         Returns:
             dict: Dictionary of QE parameters.
         """
-        # ecut_Ry = ecut_eV * units.eV / units.Ry
+        # ecut_Ry = self.ecut_eV * units.eV / units.Ry
 
         if level == "fine":
             conv_thr = 7.4e-9  # 60 * 2e-10
             ecut_Ry = 64.97
-            _kps = 0.2
-            _kpts = None
+            # kps = 0.2
+            # kpts = None
             degauss = 0.00735  # 1.47e-02
 
         with Path(self.basic_params).open() as f:

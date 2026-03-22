@@ -111,8 +111,7 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
         )
 
         # Compile and run
-        app = execute_initial_basin_pathsampling_md_block()
-        result = app.invoke(state)
+        result = execute_initial_basin_pathsampling_md_block().invoke(state)
 
         # Verify
         assert result["outfile"] is None
