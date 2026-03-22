@@ -28,6 +28,10 @@ if TYPE_CHECKING:
     from mlipflow.strategies.dft import QChemStrategy
     from mlipflow.strategies.mlip import MLIPStrategy
 
+else:
+    QChemStrategy = Any
+    MLIPStrategy = Any
+
 setup_logging()
 logger = logging.getLogger(__name__)
 #####################################################

@@ -81,11 +81,6 @@ def test_execute_dft_single_point_block_integration(real_data_setup):
     """
     state, tmp_path = real_data_setup
 
-    # We need to ensure that the data has MACE_forces for assess_n_select to work,
-    # as split_configset_by_force_agreement compares DFT_forces and MACE_forces.
-    # Since we are not running MACE here, we can manually add dummy MACE forces to the input file
-    # OR we can update the input file before running the graph.
-
     # Let's update the input file with dummy MACE forces.
     atoms = read(state["configs"][0], ":")
 
@@ -97,23 +92,6 @@ def test_execute_dft_single_point_block_integration(real_data_setup):
     # Initialise graph
     app = execute_dft_single_point_block()
 
-    # Check results
-    # assess_n_select should produce 'train_dft.xyz' and 'test_dft.xyz' (prefixed/suffixed)
-    # The node assess_n_select hardcodes output file name to 'dft.xyz'
-    # and split_configset_by_force_agreement writes to {suffix}_{out_file}.
-    # So we expect 'train_dft.xyz' and 'test_dft.xyz' in the CWD?
-    # Wait, where does it write?
-
-    # In assess_n_select:
-    # out_file='dft.xyz'
-    # split_configset_by_force_agreement(..., out_file='dft.xyz', ...)
-
-    # If run in tmp_path context, it should be fine.
-    # But graph execution might not respect tmp_path if not explicitly handled.
-    # The state['configs'] are absolute paths from tmp_path.
-    # But 'dft.xyz' is relative.
-
-    # We should run this test changing cwd to tmp_path to capture outputs
     cwd = Path.cwd()
     os.chdir(tmp_path)
     try:
