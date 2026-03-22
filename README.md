@@ -1,11 +1,21 @@
 # mlipflow
 
 <p align="center">
-  [![Tests](https://github.com/Vespertili0/mlipflow/actions/workflows/tests.yaml/badge.svg)](https://github.com/Vespertili0/mlipflow/actions/workflows/tests.yaml)
-  [![Documentation](https://github.com/Vespertili0/mlipflow/actions/workflows/docs.yaml/badge.svg)](https://github.com/Vespertili0/mlipflow)
-  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-  [![Python Version](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/downloads/)
-  [![codecov](https://img.shields.io/codecov/c/github/Vespertili0/mlipflow)](https://codecov.io/gh/Vespertili0/mlipflow)
+  <a href="https://github.com/Vespertili0/mlipflow/actions/workflows/tests.yaml">
+    <img src="https://github.com/Vespertili0/mlipflow/actions/workflows/tests.yaml/badge.svg" alt="Tests">
+  </a>
+  <a href="https://github.com/Vespertili0/mlipflow">
+    <img src="https://github.com/Vespertili0/mlipflow/actions/workflows/docs.yaml/badge.svg" alt="Documentation">
+  </a>
+  <a href="https://opensource.org/licenses/MIT">
+    <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
+  </a>
+  <a href="https://www.python.org/downloads/">
+    <img src="https://img.shields.io/badge/python-3.9%2B-blue" alt="Python Version">
+  </a>
+  <a href="https://codecov.io/gh/Vespertili0/mlipflow">
+    <img src="https://img.shields.io/codecov/c/github/Vespertili0/mlipflow" alt="codecov">
+  </a>
 </p>
 
 **Automating Reaction Pathway Exploration with Machine-Learned Interatomic Potentials (MLIPs)**
