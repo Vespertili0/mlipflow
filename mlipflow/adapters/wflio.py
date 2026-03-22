@@ -9,15 +9,23 @@ from wfl.generate.md.abort_base import AbortSimBase
 
 # NOMAD compatible, see https://nomad-lab.eu/prod/rae/gui/uploads
 _default_keep_files = ["*.out"]
-_default_properties = ["energy", "forces"] #, "stress"
+_default_properties = ["energy", "forces"]  # , "stress"
+
 
 # calculator classes for remote jobs
 class GAPCalc(WFLFileIOCalculator, Potential):
     """
     Calculator class for GAP potentials that integrates with WFL workflows.
     """
-    def __init__(self, keep_files: str = "default", rundir_prefix: str = "run_GAP_",
-                 workdir: str | None = None, scratchdir: str | None = None, **kwargs):
+
+    def __init__(
+        self,
+        keep_files: str = "default",
+        rundir_prefix: str = "run_GAP_",
+        workdir: str | None = None,
+        scratchdir: str | None = None,
+        **kwargs,
+    ):
         """
         Initialise the GAPCalc.
 
@@ -30,11 +38,20 @@ class GAPCalc(WFLFileIOCalculator, Potential):
         """
 
         # WFLFileIOCalculator is a mixin, will call remaining superclass constructors
-        super().__init__(keep_files=keep_files, rundir_prefix=rundir_prefix,
-                         workdir=workdir, scratchdir=scratchdir, **kwargs)
+        super().__init__(
+            keep_files=keep_files,
+            rundir_prefix=rundir_prefix,
+            workdir=workdir,
+            scratchdir=scratchdir,
+            **kwargs,
+        )
 
-    def calculate(self, atoms: object = None, properties: list[str] = _default_properties,
-                  system_changes: list[str] = all_changes) -> None:
+    def calculate(
+        self,
+        atoms: object = None,
+        properties: list[str] = _default_properties,
+        system_changes: list[str] = all_changes,
+    ) -> None:
         """
         Perform the calculation.
 
@@ -47,14 +64,16 @@ class GAPCalc(WFLFileIOCalculator, Potential):
         self.setup_rundir()
 
         try:
-            super().calculate(atoms=atoms, properties=properties, system_changes=system_changes)
-            calculation_succeeded = True
+            super().calculate(
+                atoms=atoms, properties=properties, system_changes=system_changes
+            )
             if "FAILED_GAP" in atoms.info:
                 del atoms.info["FAILED_GAP"]
         except Exception as exc:
             atoms.info["FAILED_GAP"] = True
-            calculation_succeeded = False
             raise exc
+
+
 #        finally:
 #            # from WFLFileIOCalculator
 #            self.clean_rundir(_default_keep_files, calculation_succeeded)
@@ -64,8 +83,15 @@ class MACECalc(WFLFileIOCalculator, MACECalculator):
     """
     Calculator class for MACE potentials that integrates with WFL workflows
     """
-    def __init__(self, keep_files: str = "default", rundir_prefix: str = "run_MACE_",
-                 workdir: str | None = None, scratchdir: str | None = None, **kwargs):
+
+    def __init__(
+        self,
+        keep_files: str = "default",
+        rundir_prefix: str = "run_MACE_",
+        workdir: str | None = None,
+        scratchdir: str | None = None,
+        **kwargs,
+    ):
         """
         Initialise the MACECalc.
 
@@ -78,11 +104,20 @@ class MACECalc(WFLFileIOCalculator, MACECalculator):
         """
 
         # WFLFileIOCalculator is a mixin, will call remaining superclass constructors
-        super().__init__(keep_files=keep_files, rundir_prefix=rundir_prefix,
-                         workdir=workdir, scratchdir=scratchdir, **kwargs)
+        super().__init__(
+            keep_files=keep_files,
+            rundir_prefix=rundir_prefix,
+            workdir=workdir,
+            scratchdir=scratchdir,
+            **kwargs,
+        )
 
-    def calculate(self, atoms: object = None, properties: list[str] = _default_properties,
-                  system_changes: list[str] = all_changes) -> None:
+    def calculate(
+        self,
+        atoms: object = None,
+        properties: list[str] = _default_properties,
+        system_changes: list[str] = all_changes,
+    ) -> None:
         """
         Perform the calculation.
 
@@ -98,7 +133,9 @@ class MACECalc(WFLFileIOCalculator, MACECalculator):
         self.setup_rundir()
 
         try:
-            super().calculate(atoms=atoms, properties=properties, system_changes=system_changes)
+            super().calculate(
+                atoms=atoms, properties=properties, system_changes=system_changes
+            )
             calculation_succeeded = True
             if "FAILED_MACE" in atoms.info:
                 del atoms.info["FAILED_MACE"]
@@ -113,11 +150,13 @@ class MACECalc(WFLFileIOCalculator, MACECalculator):
 
 ###############################################################################################################
 
+
 # abort criteria class for MD-simulations
 class ForceCheck(AbortSimBase):
     """
     Abort criteria class for MD-simulations based on force threshold.
     """
+
     def __init__(self, threshold: float, n_failed_steps: int = 10):
         """
         Initialise the ForceCheck abort criteria.
@@ -139,7 +178,7 @@ class ForceCheck(AbortSimBase):
         Returns:
             bool: True if forces are within threshold, False otherwise.
         """
-        #return self.threshold > np.max(np.sqrt(at.calc.extra_results['atoms']['local_gap_variance']) * 1e3)
+        # return self.threshold > np.max(np.sqrt(at.calc.extra_results['atoms']['local_gap_variance']) * 1e3)
         return self.threshold > np.max(np.abs(at.calc.get_forces()))
 
 

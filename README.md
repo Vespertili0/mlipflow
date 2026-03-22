@@ -61,11 +61,7 @@ mlip = MACEModel(mlip_name="my_model", run_mode="local")
 qchem = QECalculator(qe_prefix="DFT_")
 
 # Set up the learner
-learner = ActiveLearner(
-    mlip_strategy=mlip,
-    qchem_strategy=qchem,
-    base_dir="./workdir"
-)
+learner = ActiveLearner(mlip_strategy=mlip, qchem_strategy=qchem, base_dir="./workdir")
 
 # Run an iteration of active learning
 learner.run_iteration(n_iter=1)
@@ -108,14 +104,14 @@ classDiagram
     ActiveLearner --> StructureGenStrategy : uses
     ActiveLearner --> MLIPStrategy : uses
     ActiveLearner --> QChemStrategy : uses
-    
+
     StructureGenStrategy <|-- MDGen
     StructureGenStrategy <|-- OPTGen
     StructureGenStrategy <|-- NEBGen
-    
+
     MLIPStrategy <|-- GAPModel
     MLIPStrategy <|-- MACEModel
-    
+
     QChemStrategy <|-- QECalculator
     QChemStrategy <|-- EMTCalc
 ```

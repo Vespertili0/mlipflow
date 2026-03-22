@@ -5,7 +5,7 @@ mlipflow bridges the critical gap between high-level machine learning developmen
 
 ## Key Constraints & Environment
 - **OS**: Linux
-- **Core Libraries**: 
+- **Core Libraries**:
   - `wfl`: Workflow execution and parallelisation.
   - `mace-torch`: State-of-the-art MLIP model support.
   - `quippy-ase`: GAP model support and ASE integration.

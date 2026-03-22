@@ -18,23 +18,11 @@ from mlipflow.strategies.structure_generators import MDGen
 from mlipflow.graphflow.activelearner import run_active_learning_loop
 
 # 1. Define Strategies
-mlip = MACEModel(
-    model_path="initial_model.model",
-    mlip_prefix="mace_"
-)
+mlip = MACEModel(model_path="initial_model.model", mlip_prefix="mace_")
 
-dft = QECalculator(
-    pw_path="/path/to/pw.x",
-    qe_prefix="dft_"
-)
+dft = QECalculator(pw_path="/path/to/pw.x", qe_prefix="dft_")
 
-md_strategy = MDGen(
-    params={
-        "temperature": 500,
-        "n_steps": 1000,
-        "time_step": 0.5
-    }
-)
+md_strategy = MDGen(params={"temperature": 500, "n_steps": 1000, "time_step": 0.5})
 
 # 2. Set Up Initial State
 initial_state = {
@@ -43,9 +31,7 @@ initial_state = {
     "qchem_strategy": dft,
     "structure_gen_strategy": md_strategy,
     "iteration": 1,
-    "calculation_kwargs": {
-        "dft_scf": {"ecut_eV": 500, "kpts": (3, 3, 1)}
-    }
+    "calculation_kwargs": {"dft_scf": {"ecut_eV": 500, "kpts": (3, 3, 1)}},
 }
 
 # 3. Run the Loop
@@ -68,9 +54,7 @@ calc = MACEModel(model_path="model.model").get_calculator()
 md = MDGen(params={"temperature": 600, "n_steps": 2000})
 
 md.generate_new_structures(
-    in_file="reactant.xyz",
-    out_file="trajectory.xyz",
-    calculator=calc
+    in_file="reactant.xyz", out_file="trajectory.xyz", calculator=calc
 )
 ```
 
@@ -94,7 +78,7 @@ calculate_mlip_error(
     in_configs="labeled_data.xyz",
     out_file="error_summary.xyz",
     calc_property_prefix="mace_",
-    ref_property_prefix="dft_"
+    ref_property_prefix="dft_",
 )
 ```
 
@@ -105,20 +89,13 @@ Select the most informative configurations from a pool for labeling.
 ```python
 from mlipflow.data.selector import ConfigurationSelector
 
-selector = ConfigurationSelector(
-    inputs=["pool.xyz"],
-    output_prefix="best_configs"
-)
+selector = ConfigurationSelector(inputs=["pool.xyz"], output_prefix="best_configs")
 
 # Calculate global descriptors (e.g., SOAP)
 selector.calculate_global_descriptors(
-    descs=["soap cutoff=5.0 n_max=8 l_max=6"],
-    key="SOAP"
+    descs=["soap cutoff=5.0 n_max=8 l_max=6"], key="SOAP"
 )
 
 # Run Farthest Point Sampling selection
-selected = selector.run_two_stage_selection(
-    n_optimal=50,
-    descriptor_key="SOAP"
-)
+selected = selector.run_two_stage_selection(n_optimal=50, descriptor_key="SOAP")
 ```

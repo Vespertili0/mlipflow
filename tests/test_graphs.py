@@ -50,9 +50,16 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
 
         # MDGen with minimal steps
         structure_gen_strategy = MDGen(
-            uncertainty_thrs=float("inf"), # Infinite threshold to ensure MD runs even with bad random structures
+            uncertainty_thrs=float(
+                "inf"
+            ),  # Infinite threshold to ensure MD runs even with bad random structures
             n_failed_steps=2,
-            params={"steps": 5, "dt": 1.0, "temperature": 300.0, "traj_step_interval": 1}
+            params={
+                "steps": 5,
+                "dt": 1.0,
+                "temperature": 300.0,
+                "traj_step_interval": 1,
+            },
         )
 
         # QChem strategy (dummy)
@@ -64,9 +71,7 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
 
         # Reaction constraints for NEB
         # tFUR+2H -> tFURao+H
-        rxn_constraints_dict = {
-            "tFUR+2H -> tFURao+H": constraints
-        }
+        rxn_constraints_dict = {"tFUR+2H -> tFURao+H": constraints}
 
         calculation_kwargs = {
             "initial_sampling": {
@@ -75,24 +80,26 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
                     "rxn_constraints_dict": rxn_constraints_dict,
                     "method": "random",
                     "n_pathways": 1,
-                    "n_images": 3
-                }
+                    "n_images": 3,
+                },
             },
-            "mlip_gen": {"dispersion": False}, # Disable dispersion to avoid dftd3 dependency issues if any
+            "mlip_gen": {
+                "dispersion": False
+            },  # Disable dispersion to avoid dftd3 dependency issues if any
             "mlip_sp": {"dispersion": False},
             "fps_selection": {
                 "descriptor_string": "soap n_species=4 species_Z={1 6 8 29} l_max=6 n_max=8 cutoff=3.5 atom_sigma=0.5 zeta=6",
                 "info_field": "MACE_energy",
-                "n_optimal": 5
+                "n_optimal": 5,
             },
-            'relabel_check':{
-                'reference_configs': config_file,
-                'idx_org': slice(64, None),
-                'idx_h': [75, 76],
-                'sigma_isomer': 50,
-                'sigma_reaction': 10,
-                'threshold_reaction': 0.85
-            }
+            "relabel_check": {
+                "reference_configs": config_file,
+                "idx_org": slice(64, None),
+                "idx_h": [75, 76],
+                "sigma_isomer": 50,
+                "sigma_reaction": 10,
+                "threshold_reaction": 0.85,
+            },
         }
 
         state = EnsembleState(
@@ -100,12 +107,11 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
             qchem_strategy=qchem_strategy,
             mlip_strategy=mlip_strategy,
             structure_gen_strategy=structure_gen_strategy,
-            calculation_kwargs=calculation_kwargs
+            calculation_kwargs=calculation_kwargs,
         )
 
         # Compile and run
-        app = execute_initial_basin_pathsampling_md_block()
-        result = app.invoke(state)
+        result = execute_initial_basin_pathsampling_md_block().invoke(state)
 
         # Verify
         assert result["outfile"] is None

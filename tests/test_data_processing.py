@@ -17,7 +17,9 @@ def test_check_maxforce_and_cleanarrays(tmp_path):
     atoms_low.info["DFT_energy"] = -10.0
     atoms_low.arrays["DFT_forces"] = np.array([[0.1, 0.1, 0.1], [-0.1, -0.1, -0.1]])
     # Add dummy keys that are expected to be present or filtered
-    atoms_low.arrays["last_op__md_forces"] = np.array([[0.1, 0.1, 0.1], [-0.1, -0.1, -0.1]])
+    atoms_low.arrays["last_op__md_forces"] = np.array(
+        [[0.1, 0.1, 0.1], [-0.1, -0.1, -0.1]]
+    )
     atoms_low.info["last_op__md_energy"] = -10.0
     atoms_low.set_tags([0, 0])
 
@@ -25,7 +27,9 @@ def test_check_maxforce_and_cleanarrays(tmp_path):
     atoms_high.info["DFT_energy"] = -5.0
     atoms_high.set_tags([0, 0])
     atoms_high.arrays["DFT_forces"] = np.array([[100.0, 0.0, 0.0], [-100.0, 0.0, 0.0]])
-    atoms_high.arrays["last_op__md_forces"] = np.array([[0.1, 0.1, 0.1], [-0.1, -0.1, -0.1]])
+    atoms_high.arrays["last_op__md_forces"] = np.array(
+        [[0.1, 0.1, 0.1], [-0.1, -0.1, -0.1]]
+    )
     atoms_high.info["last_op__md_energy"] = -5.0
 
     in_file = tmp_path / "test_maxforce.xyz"
@@ -38,7 +42,7 @@ def test_check_maxforce_and_cleanarrays(tmp_path):
         out_file=str(out_file),
         mlip_prefix="MACE",
         calc="md",
-        max_force=10.0
+        max_force=10.0,
     )
 
     cleaned_atoms = read(str(out_file), ":")
