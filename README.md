@@ -4,7 +4,7 @@
 [![Documentation](https://github.com/Vespertili0/mlipflow/actions/workflows/docs.yaml/badge.svg)](https://github.com/Vespertili0/mlipflow)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Version](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/downloads/)
-[![codecov](https://img.shields.io/codecov/c/github/Vespertili0/mlipflow)](https://codecov.io/gh/Vespertili0/mlipflow)
+[![codecov](https://img.shields.io/codecov/c/github/Vespertili0/mlipflow)](https://codecov.io/gh/Vespertili0/mlipflow?token=${{ secrets.CODECOV_TOKEN }})
 
 **Automating Reaction Pathway Exploration with Machine-Learned Interatomic Potentials (MLIPs)**
 
