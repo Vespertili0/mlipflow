@@ -223,7 +223,7 @@ def run_dft_sp_chunked(state: EnsembleState) -> EnsembleState:
             dftd3=dft_kwargs.get("dftd3", False),
             ecut_eV=dft_kwargs.get("ecut_eV", 450),
             chunk_size=dft_kwargs.get("chunk_size", 50),
-            max_time=dft_kwargs.get("max_time", "01:30:00"),
+            #    max_time=dft_kwargs.get("max_time", "01:30:00"),
             job_name=dft_kwargs.get("job_name", "QE_"),
             keep_info_keys=dft_kwargs.get(
                 "keep_info_keys", ["DFT_energy", "slab", "species"]
