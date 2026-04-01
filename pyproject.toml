@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mlipflow"
 description = "Code for generating Machine Learning Interatomic Potentials (MLIPs) using wfl, supporting GAP and MACE models. It facilitates active learning workflows with automated structure generation and VASP/QE calculations."
-version = "0.3.0"
+version = "0.4.0"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Vespertili0" }]

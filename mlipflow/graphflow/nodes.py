@@ -185,7 +185,7 @@ def run_dft_sp(state: EnsembleState) -> EnsembleState:
     return {**state, "configs": outfile, "outfile": None}
 
 
-def run_dft_sp_block(state: EnsembleState) -> EnsembleState:
+def run_dft_sp_chunked(state: EnsembleState) -> EnsembleState:
     """Run chunked DFT single-point calculations on configurations.
 
     Args:
