@@ -103,6 +103,7 @@ class MACEModel(MLIPStrategy):
         n_cores: int = 1,
         max_time: str = "00:10:00",
         num_inputs_per_queued_job: int = 4,
+        max_mem_tot: str = "12GB",
     ) -> tuple:
         """
         It returns the MACE-calculator as tuple with the ase-calculator class, arguments and keyword arguments.
@@ -126,8 +127,13 @@ class MACEModel(MLIPStrategy):
                 n_cores=n_cores,
                 num_inputs_per_queued_job=num_inputs_per_queued_job,
                 job_name=job_name,
-                #                pre_cmds=['export WFL_NUM_PYTHON_SUBPROCESSES=4']
-                #                sys_name='local_mace'
+                max_mem_tot=max_mem_tot,
+                sys_name="local_mace",
+                pre_cmds=[
+                    "export OMP_NUM_THREADS=1",
+                    "export MKL_NUM_THREADS=1",
+                    "export OPENBLAS_NUM_THREADS=1",
+                ],
             )
 
         if not dispersion:

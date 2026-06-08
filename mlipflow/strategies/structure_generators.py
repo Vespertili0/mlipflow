@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -14,7 +15,7 @@ from mlipflow.adapters.wflio import ForceCheck
 from mlipflow.core.md_nvt import md as run_md
 
 # from wfl.generate.optimize import optimize as optimize
-from mlipflow.core.relaxation_fire import optimize
+from mlipflow.core.relaxation_fire import optimise
 from mlipflow.data import setup_logging
 
 setup_logging()
@@ -72,6 +73,7 @@ class MDGen(StructureGenStrategy):
         in_config = ConfigSet(in_file)
         out_config = OutputSpec(out_file)
         rng = np.random.default_rng(1)
+        total_inputs = len(list(in_config))
 
         # running MD
         abort_check = ForceCheck(
@@ -90,6 +92,9 @@ class MDGen(StructureGenStrategy):
             )
 
         elif remote_info:
+            requested_cores = remote_info.resources.n[0]
+            chunk_size = math.ceil(total_inputs / requested_cores)
+
             run_md(
                 inputs=in_config,
                 outputs=out_config,
@@ -99,8 +104,8 @@ class MDGen(StructureGenStrategy):
                 abort_check=abort_check,
                 autopara_info=AutoparaInfo(
                     remote_info=remote_info,
-                    num_inputs_per_python_subprocess=1,
-                    num_python_subprocesses=1,
+                    num_inputs_per_python_subprocess=chunk_size,
+                    num_python_subprocesses=requested_cores,
                 ),
                 **self.params,
             )
@@ -140,9 +145,10 @@ class OPTGen(StructureGenStrategy):
         """
         in_config = ConfigSet(in_file)
         out_config = OutputSpec(out_file)
+        total_inputs = len(list(in_config))
 
         if remote_info is None:
-            optimize(
+            optimise(
                 inputs=in_config,
                 outputs=out_config,
                 calculator=calculator,
@@ -151,15 +157,18 @@ class OPTGen(StructureGenStrategy):
             )
 
         elif remote_info:
-            optimize(
+            requested_cores = remote_info.resources.n[0]
+            chunk_size = math.ceil(total_inputs / requested_cores)
+
+            optimise(
                 inputs=in_config,
                 outputs=out_config,
                 calculator=calculator,
                 traj_subselect=self.traj_subselect,
                 autopara_info=AutoparaInfo(
                     remote_info=remote_info,
-                    num_inputs_per_python_subprocess=1,
-                    num_python_subprocesses=1,
+                    num_inputs_per_python_subprocess=chunk_size,
+                    num_python_subprocesses=requested_cores,
                 ),
                 **self.params,
             )
@@ -211,6 +220,9 @@ class NEBGen(StructureGenStrategy):
             )
 
         elif remote_info:
+            requested_cores = remote_info.resources.n[0]
+            chunk_size = math.ceil(len(neb_sets) / requested_cores)
+
             run_neb(
                 inputs=neb_sets,
                 outputs=out_config,
@@ -218,8 +230,8 @@ class NEBGen(StructureGenStrategy):
                 traj_subselect=self.traj_subselect,
                 autopara_info=AutoparaInfo(
                     remote_info=remote_info,
-                    num_inputs_per_python_subprocess=1,
-                    num_python_subprocesses=1,
+                    num_inputs_per_python_subprocess=chunk_size,
+                    num_python_subprocesses=requested_cores,
                 ),
                 **self.params,
             )

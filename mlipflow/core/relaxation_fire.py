@@ -146,7 +146,7 @@ def _run_autopara_wrappable(
     return all_trajs
 
 
-def optimize(*args, **kwargs):
+def optimise(*args, **kwargs):
     default_autopara_info = {"num_inputs_per_python_subprocess": 10}
 
     return autoparallelize(
@@ -157,7 +157,7 @@ def optimize(*args, **kwargs):
     )
 
 
-autoparallelize_docstring(optimize, _run_autopara_wrappable, "Atoms")
+autoparallelize_docstring(optimise, _run_autopara_wrappable, "Atoms")
 
 
 # Just a placeholder for now. Could perhaps include:
