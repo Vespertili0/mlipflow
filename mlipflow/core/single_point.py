@@ -91,9 +91,25 @@ def run_chunked_qe_sp(
 
     logger.info(f"Preparing {len(chunk_list)} batches of {chunk_size} for DFT-SP")
 
+    # Load all configurations once if we are passed a list of files
+    all_atoms_list = None
+    if isinstance(in_file, list):
+        all_atoms_list = list(ConfigSet(in_file))
+
     # run single point calculations on each chunk
     for n, chunk in enumerate(chunk_list):
-        atoms = read(in_file, index=chunk)
+        if all_atoms_list is not None:
+            if ":" in chunk:
+                parts = chunk.split(":")
+                start = int(parts[0]) if parts[0] else None
+                end = int(parts[1]) if len(parts) > 1 and parts[1] else None
+                step = int(parts[2]) if len(parts) > 2 and parts[2] else None
+                atoms = all_atoms_list[slice(start, end, step)]
+            else:
+                atoms = [all_atoms_list[int(chunk)]]
+        else:
+            atoms = read(in_file, index=chunk)
+
         run_single_point(
             in_file=atoms,
             out_file=f"tmp_{n}.xyz",
@@ -112,8 +128,14 @@ def run_chunked_qe_sp(
 
     # merge all chunks into one file
     logger.info("Merging chunks into single file")
+
+    if isinstance(out_file, list) and len(out_file) == 1:
+        out_file_write = out_file[0]
+    else:
+        out_file_write = out_file
+
     merge_clean_chunks(
-        in_files=chunk_files, out_file=out_file, keep_info_keys=keep_info_keys
+        in_files=chunk_files, out_file=out_file_write, keep_info_keys=keep_info_keys
     )
 
     # remove the temporary files
