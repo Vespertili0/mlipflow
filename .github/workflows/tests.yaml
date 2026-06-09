@@ -15,12 +15,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run pre-commit
+        uses: pre-commit/action@v3.0.1
   tests-base:
+    needs: lint
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
       matrix:
-        python-version: ["3.10", "3.11"]
+        python-version: ["3.10", "3.11", "3.12"]
 
     defaults:
       run:
@@ -44,17 +54,19 @@ jobs:
           pip install git+https://github.com/libAtoms/workflow
           pip install numpy==2.0
           pip install pytest pytest-cov
-          uv pip install --system -r tests/requirements.txt .[dev]
+          uv pip install --system -e .[dev]
 
       - name: Set coverage core
         run: |
           echo "COVERAGE_CORE=sysmon" >> $GITHUB_ENV
 
       - name: Run tests with pytest
-        run: pytest --cov --cov-branch --cov-report=xml
+        run: pytest --cov=mlipflow --cov-branch --cov-report=xml
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-        
+          verbose: true
+          fail_ci_if_error: true
+          skip_validation: true

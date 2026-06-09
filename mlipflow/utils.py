@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import os
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 
 import expyre
 import numpy as np
 from expyre.resources import Resources
 from wfl.autoparallelize import RemoteInfo
 
-expyre.config.init(root_dir=os.getcwd())
+expyre.config.init(root_dir=str(Path.cwd()))
 
 
 def find_robust_elbow(distances: list[float], start_idx: int = 20) -> int:
@@ -67,13 +67,23 @@ def time_str_to_seconds(time_str: str) -> int:
     Returns:
         int: Total seconds.
     """
-    t = datetime.strptime(time_str, "%H:%M:%S")
+    t = datetime.strptime(time_str, "%H:%M:%S").replace(tzinfo=timezone.utc)
     return t.hour * 3600 + t.minute * 60 + t.second
 
 
-def prepare_remote(max_time: int | str, n_cores: int, num_inputs_per_queued_job: int, job_name: str,
-                   env_vars: list[str] = [], pre_cmds: list[str] = [], post_cmds: list[str] = [],
-                   input_files: list[str] = [], output_files: list[str] = [], sys_name: str = "local") -> RemoteInfo:
+def prepare_remote(
+    max_time: int | str,
+    n_cores: int,
+    num_inputs_per_queued_job: int,
+    job_name: str,
+    max_mem_tot: str = "32GB",
+    env_vars: list[str] | None = None,
+    pre_cmds: list[str] | None = None,
+    post_cmds: list[str] | None = None,
+    input_files: list[str] | None = None,
+    output_files: list[str] | None = None,
+    sys_name: str = "local",
+) -> RemoteInfo:
     """
     Prepare the remote info for the job submission.
 
@@ -92,13 +102,23 @@ def prepare_remote(max_time: int | str, n_cores: int, num_inputs_per_queued_job:
     Returns:
         wfl.autoparallelize.RemoteInfo: The configured RemoteInfo object.
     """
+    if output_files is None:
+        output_files = []
+    if input_files is None:
+        input_files = []
+    if post_cmds is None:
+        post_cmds = []
+    if pre_cmds is None:
+        pre_cmds = []
+    if env_vars is None:
+        env_vars = []
     return RemoteInfo(
         resources=Resources(
             max_time=max_time,
             num_cores=n_cores,
-            max_mem_tot="32GB",
-            partitions="work"
-            ),
+            max_mem_tot=max_mem_tot,
+            partitions="work",
+        ),
         sys_name=sys_name,
         num_inputs_per_queued_job=num_inputs_per_queued_job,
         job_name=job_name,

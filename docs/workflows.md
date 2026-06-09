@@ -32,12 +32,16 @@ The `EnsembleState` is the central data structure passed between nodes in the wo
 
 ```python
 class EnsembleState(TypedDict):
-    configs: list[str]                  # List of configuration file paths
-    outfile: NotRequired[list[str]]     # Optional output file paths
-    qchem_strategy: QChemStrategy       # Quantum chemistry calculation strategy
-    mlip_strategy: MLIPStrategy         # MLIP fitting strategy
-    structure_gen_strategy: NotRequired[StructureGenStrategy] # Strategy for structure generation (MD/OPT)
-    calculation_kwargs: NotRequired[dict[str, Any]] # Dictionary containing parameters for various calculation steps
+    configs: list[str]  # List of configuration file paths
+    outfile: NotRequired[list[str]]  # Optional output file paths
+    qchem_strategy: QChemStrategy  # Quantum chemistry calculation strategy
+    mlip_strategy: MLIPStrategy  # MLIP fitting strategy
+    structure_gen_strategy: NotRequired[
+        StructureGenStrategy
+    ]  # Strategy for structure generation (MD/OPT)
+    calculation_kwargs: NotRequired[
+        dict[str, Any]
+    ]  # Dictionary containing parameters for various calculation steps
 ```
 
 ### Complete Example with Default Settings
@@ -53,73 +57,60 @@ from ase.constraints import FixAtoms
 
 # 1. Define Strategies
 qchem_strategy = QChemStrategy(
-    calculator=QECalculator(
-        command="pw.x",
-        pseudopotentials="./pseudos"
-    )
+    calculator=QECalculator(command="pw.x", pseudopotentials="./pseudos")
 )
 
-mlip_strategy = MLIPStrategy(
-    model=MACEModel(model_path="mace_model.model")
-)
+mlip_strategy = MLIPStrategy(model=MACEModel(model_path="mace_model.model"))
 
-structure_gen_strategy = MDGen(
-    steps=4000,
-    timestep=1.0,
-    temperature=600
-)
+structure_gen_strategy = MDGen(steps=4000, timestep=1.0, temperature=600)
 
 # 2. Define Calculation Arguments
 calculation_kwargs = {
     # MLIP Single Point (evaluating generated structures)
-    'mlip_sp': {
-        'dispersion': False,
-        'num_inputs_per_queued_job': 300,
-        'max_time': '01:30:00'
+    "mlip_sp": {
+        "dispersion": False,
+        "num_inputs_per_queued_job": 300,
+        "max_time": "01:30:00",
     },
-    
-    # MLIP Structure Generation (MD/Opt parameters are primarily in structure_gen_strategy, 
+    # MLIP Structure Generation (MD/Opt parameters are primarily in structure_gen_strategy,
     # but specific cleaner/job params can be here)
-    'mlip_gen': {
-        'dispersion': True,
-        'num_inputs_per_queued_job': 15,
-        'max_time': '01:30:00'
+    "mlip_gen": {
+        "dispersion": True,
+        "num_inputs_per_queued_job": 15,
+        "max_time": "01:30:00",
     },
-
     # Initial Sampling Specifics
-    'initial_sampling': {
+    "initial_sampling": {
         # Constraints to apply during Basin MD
-        'basin_constraints': [
-            FixAtoms(indices=[0, 1, 2, 3]) # any ase.constraint works here
+        "basin_constraints": [
+            FixAtoms(indices=[0, 1, 2, 3])  # any ase.constraint works here
         ],
-        
         # Configuration for NEB Pair Generation
-        'neb_config': {
-            'rxn_constraints_dict': {
-                'chem_A+chem_B -> product_C': [FixAtoms(indices=[0, 1])]
+        "neb_config": {
+            "rxn_constraints_dict": {
+                "chem_A+chem_B -> product_C": [FixAtoms(indices=[0, 1])]
             },
-            'method': 'similarity',
-            'n_pathways': 5,
-            'n_images': 7,
-            'descriptor_string': 'soap cutoff=3.0 l_max=6 n_max=9 atom_sigma=0.5'
-        }
+            "method": "similarity",
+            "n_pathways": 5,
+            "n_images": 7,
+            "descriptor_string": "soap cutoff=3.0 l_max=6 n_max=9 atom_sigma=0.5",
+        },
     },
-     
     # Configuration Selection (if needed for later steps)
-    'selection': {
-        'descriptor_key': 'SOAP',
-        'descriptor_string': 'soap cutoff=3.0 l_max=6 n_max=9 atom_sigma=0.5',
-        'info_field': 'MACE_energy', # field to use for selection (e.g. histogramming)
-        '**kwargs': {'kT': 0.05}          
-    }
+    "selection": {
+        "descriptor_key": "SOAP",
+        "descriptor_string": "soap cutoff=3.0 l_max=6 n_max=9 atom_sigma=0.5",
+        "info_field": "MACE_energy",  # field to use for selection (e.g. histogramming)
+        "**kwargs": {"kT": 0.05},
+    },
 }
 
 # 3. Construct the State
 state: EnsembleState = {
-    'configs': ['initial_structures.xyz'],
-    'qchem_strategy': qchem_strategy,
-    'mlip_strategy': mlip_strategy,
-    'structure_gen_strategy': structure_gen_strategy,
-    'calculation_kwargs': calculation_kwargs
+    "configs": ["initial_structures.xyz"],
+    "qchem_strategy": qchem_strategy,
+    "mlip_strategy": mlip_strategy,
+    "structure_gen_strategy": structure_gen_strategy,
+    "calculation_kwargs": calculation_kwargs,
 }
 ```

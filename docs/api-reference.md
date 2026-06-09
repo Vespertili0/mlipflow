@@ -53,6 +53,7 @@ Support for the [MACE](https://github.com/ACEsuit/mace) architecture.
 **Example:**
 ```python
 from mlipflow.strategies.mlip import MACEModel
+
 mace = MACEModel(model_path="my_model.model")
 calc = mace.get_calculator(job_name="MACE_Calc")
 ```
@@ -77,6 +78,7 @@ Class for selecting a subset of configurations from a pool.
 **Example:**
 ```python
 from mlipflow.data.selector import ConfigurationSelector
+
 selector = ConfigurationSelector(inputs=["pool.xyz"])
 selector.calculate_global_descriptors(descs=["soap cutoff=5.0"], key="SOAP")
 selected = selector.run_two_stage_selection(n_optimal=10, descriptor_key="SOAP")

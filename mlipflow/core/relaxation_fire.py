@@ -1,18 +1,31 @@
+from __future__ import annotations
+
 import sys
+
 from ase.optimize import FIRE
 from wfl.autoparallelize import autoparallelize, autoparallelize_docstring
-from wfl.utils.save_calc_results import at_copy_save_calc_results
+from wfl.generate.utils import save_config_type
 from wfl.utils.misc import atoms_to_list
 from wfl.utils.parallel import construct_calculator_picklesafe
-from wfl.generate.utils import save_config_type
+from wfl.utils.save_calc_results import at_copy_save_calc_results
 
 
 def _run_autopara_wrappable(
-        atoms, calculator, fmax=1.0e-3, smax=None, steps=1000, traj_step_interval=1, traj_subselect=None,
-        skip_failures=True, results_prefix='last_op__optimize_', verbose=False, update_config_type="append",
-        rng=None, _autopara_per_item_info=None,
-        **opt_kwargs
-    ):
+    atoms,
+    calculator,
+    fmax=1.0e-3,
+    _smax=None,
+    steps=1000,
+    traj_step_interval=1,
+    traj_subselect=None,
+    skip_failures=True,
+    results_prefix="last_op__optimize_",
+    verbose=False,
+    update_config_type="append",
+    _rng=None,
+    _autopara_per_item_info=None,
+    **_opt_kwargs,
+):
     """runs a structure optimization. By default calculator properties will be stored in keys
     prefixed with "last_op__optimize_", which may be overwritten by next operation.
 
@@ -66,17 +79,17 @@ def _run_autopara_wrappable(
 
     all_trajs = []
 
-    for at_i, at in enumerate(atoms_to_list(atoms)):
+    for _at_i, at in enumerate(atoms_to_list(atoms)):
         # original constraints
         org_constraints = at.constraints
         at.calc = calculator
         opt = FIRE(at, logfile=sys.stdout if verbose else None)
 
         # default status, will be overwritten for first and last configs in traj
-        at.info['optimize_config_type'] = 'optimize_mid'
+        at.info["optimize_config_type"] = "optimize_mid"
         traj = []
 
-        def process_step():
+        def process_step(traj=traj, at=at, org_constraints=org_constraints):
             if len(traj) > 0 and traj[-1] == at:
                 # Some optimization algorithms sometimes seem to repeat, perhaps
                 # only in weird circumstances, e.g. bad gradients near breakdown.
@@ -90,19 +103,21 @@ def _run_autopara_wrappable(
         opt.attach(process_step, interval=traj_step_interval)
 
         # preliminary value
-        final_status = 'unconverged'
+        final_status = "unconverged"
 
         try:
-            if opt.run(fmax=fmax, steps=steps): #smax=smax,
-                final_status = 'converged'
+            if opt.run(fmax=fmax, steps=steps):  # smax=smax,
+                final_status = "converged"
         except Exception as exc:
             # label actual failed optimizations
             # when this happens, the atomic config somehow ends up with a 6-vector stress, which can't be
             # read by xyz reader.
             # that should probably never happen
-            final_status = 'exception'
+            final_status = "exception"
             if skip_failures:
-                sys.stderr.write(f'Structure optimization failed with exception \'{exc}\'\n')
+                sys.stderr.write(
+                    f"Structure optimization failed with exception '{exc}'\n"
+                )
                 sys.stderr.flush()
             else:
                 raise
@@ -113,13 +128,13 @@ def _run_autopara_wrappable(
             traj.append(new_config)
 
         # set for first config, to be overwritten if it's also last config
-        traj[0].info['optimize_config_type'] = 'optimize_initial'
+        traj[0].info["optimize_config_type"] = "optimize_initial"
 
-        traj[-1].info['optimize_config_type'] = f'optimize_last_{final_status}'
-        traj[-1].info['optimize_n_steps'] = opt.get_number_of_steps()
+        traj[-1].info["optimize_last_status"] = final_status
+        traj[-1].info["optimize_n_steps"] = opt.get_number_of_steps()
 
-        for at in traj:
-            save_config_type(at, update_config_type, at.info["optimize_config_type"])
+        for _at in traj:
+            save_config_type(_at, update_config_type, _at.info["optimize_config_type"])
 
         # Note that if resampling doesn't include original last config, later
         # steps won't be able to identify those configs as the (perhaps unconverged) minima.
@@ -131,12 +146,18 @@ def _run_autopara_wrappable(
     return all_trajs
 
 
-def optimize(*args, **kwargs):
+def optimise(*args, **kwargs):
     default_autopara_info = {"num_inputs_per_python_subprocess": 10}
 
-    return autoparallelize(_run_autopara_wrappable, *args,
-                           default_autopara_info=default_autopara_info, **kwargs)
-autoparallelize_docstring(optimize, _run_autopara_wrappable, "Atoms")
+    return autoparallelize(
+        _run_autopara_wrappable,
+        *args,
+        default_autopara_info=default_autopara_info,
+        **kwargs,
+    )
+
+
+autoparallelize_docstring(optimise, _run_autopara_wrappable, "Atoms")
 
 
 # Just a placeholder for now. Could perhaps include:
@@ -164,7 +185,13 @@ def subselect_from_traj(traj, subselect=None):
     elif subselect == "last":
         return traj[-1]
     elif subselect == "last_converged":
-        return traj[-1] if (traj[-1].info["optimize_config_type"] == "optimize_last_converged") else None
+        return (
+            traj[-1]
+            if (traj[-1].info["optimize_config_type"] == "optimize_last_converged")
+            else None
+        )
 
-    raise RuntimeError(f'Subselecting confgs from trajectory with rule '
-                       f'"subselect={subselect}" is not yet implemented')
+    raise RuntimeError(
+        f"Subselecting confgs from trajectory with rule "
+        f'"subselect={subselect}" is not yet implemented'
+    )

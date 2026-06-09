@@ -15,10 +15,12 @@ You can customise the active learning cycle by defining a new LangGraph state an
 from langgraph.graph import StateGraph, START, END
 from mlipflow.graphflow.nodes import run_mlip_sp, run_dft_sp, run_mace_fit
 
+
 # 1. Define custom state
 class CustomState(dict):
     configs: list[str]
     # ... other state keys
+
 
 # 2. Build graph
 workflow = StateGraph(CustomState)
@@ -52,9 +54,9 @@ state = {
     "calculation_kwargs": {
         "initial_sampling": {
             "basin_constraints": constraints,
-            "basin__mlip_gen": {"dispersion": True}
+            "basin__mlip_gen": {"dispersion": True},
         }
-    }
+    },
 }
 
 new_state = run_apply_basin_constraints(state)
@@ -72,9 +74,9 @@ state = {
     "calculation_kwargs": {
         "neb_config": {
             "rxn_constraints_dict": {"type": "bond", "indices": [0, 5], "target": 1.5},
-            "n_images": 12
+            "n_images": 12,
         }
-    }
+    },
 }
 
 # Generates intermediate images and runs MLIP refinement

@@ -5,7 +5,7 @@ mlipflow bridges the critical gap between high-level machine learning developmen
 
 ## Key Constraints & Environment
 - **OS**: Linux
-- **Core Libraries**: 
+- **Core Libraries**:
   - `wfl`: Workflow execution and parallelisation.
   - `mace-torch`: State-of-the-art MLIP model support.
   - `quippy-ase`: GAP model support and ASE integration.
@@ -35,6 +35,5 @@ mlipflow bridges the critical gap between high-level machine learning developmen
 - [ ] Run tests via `python -m pytest tests/` before committing.
 
 ## Next Steps
-1. **Integrate and Test Semi-Supervised GMM in Active Learner**: Ensure the standalone GMM refinement script is fully embedded into the `ActiveLearner` loop, complete with relevant Pytest coverage to validate its robustness.
-2. **Expand Structure Generation Strategies**: Flesh out the NEB and OPT generation strategies to fully leverage the newly optimized MACE/GMM uncertainty predictions for targeting specific exploratory edge cases.
-3. **Enhance Documentation and Workflows**: Populate the `README.md` with practical code examples and refine the `docs/` folder to effectively guide users on composing custom LangGraph workflows.
+1. **Introduce NEBAnalysis**: simple standardised analysis of reaction pathways by reaction and MACE vs. DFT.
+2. **add one-shot script for 0th-iteration**: update `graph` and `activelerner` scripts to allow for a one-shot run of the active learning loop for the 0th iteration.

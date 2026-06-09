@@ -1,13 +1,16 @@
-import os, json
-from abc import ABC, abstractmethod
+from __future__ import annotations
 
-#from ase import units
+import json
+from abc import ABC, abstractmethod
+from pathlib import Path
+
+# from ase import units
 from ase.calculators.emt import EMT
 from ase.calculators.espresso import EspressoProfile
 from wfl.calculators.espresso import Espresso
-from wfl.calculators.vasp import Vasp
 
 from mlipflow.utils import prepare_remote, time_str_to_seconds
+
 #####################################################################
 
 
@@ -15,13 +18,14 @@ from mlipflow.utils import prepare_remote, time_str_to_seconds
 class QChemStrategy(ABC):
     """
     Abstract base class for Quantum Chemistry strategies.
-    
+
     Attributes:
         qe_prefix (str): Prefix for QE calculations.
     """
+
     def __init__(self) -> None:
         """Initialise the QChemStrategy."""
-        self.qe_prefix = 'DFT_'
+        self.qe_prefix = "DFT_"
 
     @abstractmethod
     def get_calculator(self, job_name: str) -> tuple:
@@ -34,13 +38,14 @@ class QChemStrategy(ABC):
         Returns:
             tuple: (calculator_class, args, kwargs)
         """
-        pass
+
 
 # EMT strategy class for debugging
 class EMTCalc(QChemStrategy):
     """
     EMT strategy class for debugging and testing.
     """
+
     def __init__(self) -> None:
         """Initialise the EMTCalc strategy."""
         super().__init__()
@@ -57,18 +62,22 @@ class EMTCalc(QChemStrategy):
         Returns:
             tuple: (EMT class, None, dict with options)
         """
-        return (EMT, None, {"fixed_cutoff": True})
+        _ = job_name
+        emt_kwargs = {"fixed_cutoff": True, **kwargs}
+        return (EMT, None, emt_kwargs)
+
 
 # Quantum Espresso DFT-strategy class
 class QECalculator(QChemStrategy):
     """
     Quantum Espresso DFT-strategy class.
-    
+
     Attributes:
         basic_params (str): Path to basic parameters JSON file.
         pseudo_dir (str): Directory containing pseudopotentials.
         pseudopotentials (dict): Map of element to pseudopotential file.
     """
+
     def __init__(self, basic_params: str, pseudopots: dict, pseudo_dir: str) -> None:
         """
         Initialise the QECalculator.
@@ -81,11 +90,24 @@ class QECalculator(QChemStrategy):
         self.basic_params = basic_params
         self.pseudo_dir = pseudo_dir
         self.pseudopotentials = pseudopots
-        
+        self.ecut_eV = None
+        self.kpts = None
+        self.calc_type = None
+        self.dipole = None
+        self.dftd3 = None
+        self.spin = None
 
-    def get_calculator(self, job_name: str, ecut_eV: int = 450, kpts: tuple = (3,3,1),
-                       calc_type: str = 'scf', dipole: bool = False, dftd3: bool = False, spin: bool = False,
-                       num_inputs_per_queued_job: int = 2) -> tuple:
+    def get_calculator(
+        self,
+        job_name: str,
+        ecut_eV: int = 450,
+        kpts: tuple = (3, 3, 1),
+        calc_type: str = "scf",
+        dipole: bool = False,
+        dftd3: bool = False,
+        spin: bool = False,
+        num_inputs_per_queued_job: int = 2,
+    ) -> tuple:
         """
         Get the Quantum Espresso calculator configuration.
 
@@ -102,129 +124,139 @@ class QECalculator(QChemStrategy):
         Returns:
             tuple: (Espresso class, [], dict with options)
         """
+        self.ecut_eV = ecut_eV
+        self.kpts = kpts
+        self.calc_type = calc_type
+        self.dipole = dipole
+        self.dftd3 = dftd3
+        self.spin = spin
+
         # prepare remote settings based on calculation type
-        assert calc_type in ['scf', 'relax'], f'Unknown calculation type: {calc_type}'
+        assert self.calc_type in ["scf", "relax"], (
+            f"Unknown calculation type: {self.calc_type}"
+        )
         remote_settings = {
-            'scf': {
-                'max_time': '02:00:00' if spin else '01:25:00',
-                'n_cores': 48 if spin else 32,
-                'num_inputs_per_queued_job': 1 if spin else num_inputs_per_queued_job,
-                'job_name': job_name,
-                'sys_name': 'local_qe'
+            "scf": {
+                "max_time": "02:00:00" if self.spin else "01:25:00",
+                "n_cores": 48 if self.spin else 32,
+                "num_inputs_per_queued_job": 1
+                if self.spin
+                else num_inputs_per_queued_job,
+                "job_name": job_name,
+                "sys_name": "local_qe",
             },
-            'relax': {
-                'max_time': '06:25:00',
-                'n_cores': 32,
-                'num_inputs_per_queued_job': 1,
-                'job_name': job_name,
-                'sys_name': 'local_qe'
+            "relax": {
+                "max_time": "06:25:00",
+                "n_cores": 32,
+                "num_inputs_per_queued_job": 1,
+                "job_name": job_name,
+                "sys_name": "local_qe",
             },
         }
-        self.remote_info=prepare_remote(**remote_settings[calc_type])
-        self.max_time_sec = time_str_to_seconds(remote_settings[calc_type]['max_time'])
-        self.max_time_sec += 300 # add 5 minutes buffer
+        self.remote_info = prepare_remote(**remote_settings[self.calc_type])
+        self.max_time_sec = time_str_to_seconds(
+            remote_settings[self.calc_type]["max_time"]
+        )
+        self.max_time_sec += 300  # add 5 minutes buffer
 
         # prepare input-data for QE
-        input_data = self._prepare_params(ecut_eV=ecut_eV, calc=calc_type)
-        assert input_data, 'parameters for QE missing'
+        input_data = self._prepare_params()
+        assert input_data, "parameters for QE missing"
 
         # update calculation type
-        input_data['control']['calculation'] = calc_type
+        input_data["control"]["calculation"] = self.calc_type
 
-        if calc_type == 'scf':
-            for para in ['nstep', 'etot_conv_thr', 'forc_conv_thr']:
-                input_data['control'].pop(para)
+        if self.calc_type == "scf":
+            for para in ["nstep", "etot_conv_thr", "forc_conv_thr"]:
+                input_data["control"].pop(para)
 
         # modify default-input removing Dipole or D3-correction
-        if dipole == False:
-            dipole_paras = {'system': ['eamp', 'edir', 'emaxpos', 'eopreg'],
-                            'control': ['dipfield', 'tefield']}
-            for key in dipole_paras.keys():
+        if not self.dipole:
+            dipole_paras = {
+                "system": ["eamp", "edir", "emaxpos", "eopreg"],
+                "control": ["dipfield", "tefield"],
+            }
+            for key in dipole_paras:
                 for para in dipole_paras.get(key):
                     input_data[key].pop(para)
 
-        if dftd3 == False:
-            dftd3_paras = {'system': ['dftd3_version', 'vdw_corr']}
-            for key in dftd3_paras.keys():
+        if not self.dftd3:
+            dftd3_paras = {"system": ["dftd3_version", "vdw_corr"]}
+            for key in dftd3_paras:
                 for para in dftd3_paras.get(key):
                     input_data[key].pop(para)
 
-        if spin == True:
-            input_data['system'].update(
+        if self.spin:
+            input_data["system"].update(
                 {
-                    'nbnd': 628,
-                    'nspin': 2, 
-                    'starting_magnetization(1)': 0.263,    # for Cu     
+                    "nbnd": 628,
+                    "nspin": 2,
+                    "starting_magnetization(1)": 0.263,  # for Cu
                 }
             )
-        
+
         # set up ase-related QE-calculator
-        profile = EspressoProfile(
-            command='srun pw.x', 
-            pseudo_dir=self.pseudo_dir
+        profile = EspressoProfile(command="srun pw.x", pseudo_dir=self.pseudo_dir)
+
+        return (
+            Espresso,
+            [],
+            {
+                "keep_files": None,
+                "rundir_prefix": "QE_",
+                "profile": profile,
+                "input_data": input_data,
+                "pseudopotentials": self.pseudopotentials,
+                "kpts": self.kpts,
+            },
         )
-        
-        calculator = (Espresso, [], {
-            'keep_files': None, 
-            'rundir_prefix': 'QE_',
-            'profile': profile,
-            'input_data': input_data,
-            'pseudopotentials':self.pseudopotentials,
-            'kpts': kpts
-            }
-        )
 
-        return calculator
-
-
-    def _prepare_params(self, ecut_eV: int, calc: str, level: str = 'fine') -> dict:
+    def _prepare_params(self, level: str = "fine") -> dict:
         """
         Prepare input-file parameters for Quantum Espresso (QE) pw.x computation.
+        Hardcoded values for SSSP-efficiency pseudopotentials.
 
         Args:
-            ecut_eV (int): Energy cutoff in eV.
-            calc (str): Type of calculation, 'scf' or 'relax'.
             level (str): Level of precision, 'fine' or 'normal'. Defaults to 'fine'.
 
         Returns:
             dict: Dictionary of QE parameters.
-        """        
-        #ecut_Ry = ecut_eV * units.eV / units.Ry
-        
-        if level == 'fine':
-            conv_thr = 7.4e-9   #60 * 2e-10
-            ecut_Ry = 64.97
-            kps = 0.2
-            kpts = None
-            degauss = 0.00735   #1.47e-02
+        """
+        # ecut_Ry = self.ecut_eV * units.eV / units.Ry
 
-        with open(self.basic_params, 'r') as f:
+        if level == "fine":
+            conv_thr = 7.4e-9  # 60 * 2e-10
+            ecut_Ry = 64.97
+            # kps = 0.2
+            # kpts = None
+            degauss = 0.00735  # 1.47e-02
+
+        with Path(self.basic_params).open() as f:
             qe_params = json.loads(f.read())
 
-        qe_params['control'].update({
-            'outdir': f"./files",
-            'pseudo_dir': self.pseudo_dir,
-            'max_seconds': self.max_time_sec
+        qe_params["control"].update(
+            {
+                "outdir": "./files",
+                "pseudo_dir": self.pseudo_dir,
+                "max_seconds": self.max_time_sec,
             }
         )
 
-        qe_params['system'].update({
-            'degauss': degauss,
-            'ecutwfc': round(ecut_Ry, 2),
-            'ecutrho': round(ecut_Ry * 8, 2)
+        qe_params["system"].update(
+            {
+                "degauss": degauss,
+                "ecutwfc": round(ecut_Ry, 2),
+                "ecutrho": round(ecut_Ry * 8, 2),
             }
         )
-        
-        qe_params['electrons'].update({
-            'conv_thr': conv_thr
-            }
-        )
-        
+
+        qe_params["electrons"].update({"conv_thr": conv_thr})
+
         return qe_params
-    
+
 
 # VASP DFT-strategy class
-#class VASPCalculator(QChemStrategy):
+# class VASPCalculator(QChemStrategy):
 #    def __init__(self) -> None:
 #        super().__init__()
 #
@@ -254,9 +286,9 @@ class QECalculator(QChemStrategy):
 #                'job_name': job_name,
 #                'sys_name': 'local_qe'
 #            },
-#        }        
+#        }
 #        self.remote_info=prepare_remote(**remote_settings[calc_type])
-#        
+#
 #        # prepare calculator
 #        calculator = (Vasp, [], {
 #            "calculator_exec": "srun vasp_std",
