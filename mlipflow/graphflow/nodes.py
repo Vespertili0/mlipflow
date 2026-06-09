@@ -21,6 +21,7 @@ from mlipflow.data.selection import (
 )
 from mlipflow.data.selector import ConfigurationSelector
 from mlipflow.strategies.structure_generators import MDGen, NEBGen, StructureGenStrategy
+from mlipflow.utils.path_factory import resolve_step_path
 
 if TYPE_CHECKING:
     from ase import Atoms
@@ -68,6 +69,7 @@ class EnsembleState(TypedDict):
 
     configs: list[str]
     outfile: NotRequired[list[str]]
+    iteration: NotRequired[int]
     qchem_strategy: NotRequired[QChemStrategy]
     mlip_strategy: NotRequired[MLIPStrategy]
     structure_gen_strategy: NotRequired[StructureGenStrategy]
@@ -142,15 +144,20 @@ def switch_to_neb_generation(state: EnsembleState) -> EnsembleState:
 def run_dft_sp(state: EnsembleState) -> EnsembleState:
     """Run DFT single-point calculations on configurations.
 
-    Args:
-        state (EnsembleState): Current workflow state
+    Parameters
+    ----------
+    state : EnsembleState
+        Current workflow state.
 
-    Returns:
-        EnsembleState: Updated workflow state
+    Returns
+    -------
+    EnsembleState
+        Updated workflow state.
 
-    Raises:
-        KeyError: If required state keys are missing
-        ValueError: If configs list is empty
+    Raises
+    ------
+    ValueError
+        If configs list is empty.
     """
     logger.info("Running DFT single-point calculations")
 
@@ -159,7 +166,15 @@ def run_dft_sp(state: EnsembleState) -> EnsembleState:
         raise ValueError("No configurations provided in state")
 
     configs = state["configs"]
-    outfile = [xyz.replace(".xyz", ".dft.xyz") for xyz in configs]
+    current_iter = state.get("iteration", 0)
+    outfile = [resolve_step_path(xyz, "dft_sp", current_iter) for xyz in configs]
+
+    # Idempotency guard: skip execution if outputs already exist
+    if all(
+        Path(out_f).exists() and Path(out_f).stat().st_size > 0 for out_f in outfile
+    ):
+        logger.info("Valid DFT-SP outputs detected on disk. Skipping execution.")
+        return {**state, "configs": outfile, "outfile": None}
 
     dft_kwargs = state.get("calculation_kwargs", {}).get("dft_scf", {})
 
@@ -188,15 +203,20 @@ def run_dft_sp(state: EnsembleState) -> EnsembleState:
 def run_dft_sp_chunked(state: EnsembleState) -> EnsembleState:
     """Run chunked DFT single-point calculations on configurations.
 
-    Args:
-        state (EnsembleState): Current workflow state
+    Parameters
+    ----------
+    state : EnsembleState
+        Current workflow state.
 
-    Returns:
-        EnsembleState: Updated workflow state
+    Returns
+    -------
+    EnsembleState
+        Updated workflow state.
 
-    Raises:
-        KeyError: If required state keys are missing
-        ValueError: If configs list is empty
+    Raises
+    ------
+    ValueError
+        If configs list is empty.
     """
     logger.info("Running chunked DFT single-point calculations")
 
@@ -205,13 +225,20 @@ def run_dft_sp_chunked(state: EnsembleState) -> EnsembleState:
         raise ValueError("No configurations provided in state")
 
     configs = state["configs"]
-    outfile = [xyz.replace(".xyz", ".dft.xyz") for xyz in configs]
+    current_iter = state.get("iteration", 0)
+    outfile = [resolve_step_path(xyz, "dft_sp", current_iter) for xyz in configs]
+
+    # Idempotency guard: skip execution if outputs already exist
+    if all(
+        Path(out_f).exists() and Path(out_f).stat().st_size > 0 for out_f in outfile
+    ):
+        logger.info(
+            "Valid chunked DFT-SP outputs detected on disk. Skipping execution."
+        )
+        return {**state, "configs": outfile, "outfile": None}
 
     # Get DFT kwargs from state or use defaults
     dft_kwargs = state.get("calculation_kwargs", {}).get("dft_scf", {})
-
-    # Default parameters need to be handled carefully for run_chunked_qe_sp
-    # It seems run_chunked_qe_sp takes explicit args
 
     try:
         run_chunked_qe_sp(
@@ -243,13 +270,22 @@ def run_dft_sp_chunked(state: EnsembleState) -> EnsembleState:
 def run_mlip_sp(state: EnsembleState) -> EnsembleState:
     """Run MLIP single-point calculations on configurations.
 
-    Args:
-        state (EnsembleState): Current workflow state
-    Returns:
-        EnsembleState: Updated workflow state
-    Raises:
-        KeyError: If required state keys are missing
-        ValueError: If configs list is empty
+    Parameters
+    ----------
+    state : EnsembleState
+        Current workflow state.
+
+    Returns
+    -------
+    EnsembleState
+        Updated workflow state.
+
+    Raises
+    ------
+    KeyError
+        If ``mlip_strategy`` is missing from state.
+    ValueError
+        If configs list is empty.
     """
     logger.info("Running MLIP-SP calculations")
 
@@ -263,7 +299,15 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
 
     mlip = state["mlip_strategy"]
     configs = state["configs"]
-    outfile = [xyz.replace(".xyz", ".mace.xyz") for xyz in configs]
+    current_iter = state.get("iteration", 0)
+    outfile = [resolve_step_path(xyz, "mace_sp", current_iter) for xyz in configs]
+
+    # Idempotency guard: skip execution if outputs already exist
+    if all(
+        Path(out_f).exists() and Path(out_f).stat().st_size > 0 for out_f in outfile
+    ):
+        logger.info("Valid MLIP-SP outputs detected on disk. Skipping execution.")
+        return {**state, "configs": outfile, "outfile": None}
 
     # Get MLIP kwargs from state
     mlip_kwargs = state.get("calculation_kwargs", {}).get("mlip_sp", {}).copy()
@@ -373,10 +417,20 @@ def _run_structure_generation_logic(
     force_key = f"last_op__{op_name}_forces"
 
     current_files = state["configs"]
+    current_iter = state.get("iteration", 0)
     outfile = [
-        xyz.replace(".xyz", f"_{structure_generator.calc_prefix}.xyz")
+        resolve_step_path(xyz, structure_generator.calc_prefix, current_iter)
         for xyz in current_files
     ]
+
+    # Idempotency guard: skip execution if outputs already exist
+    if all(
+        Path(out_f).exists() and Path(out_f).stat().st_size > 0 for out_f in outfile
+    ):
+        logger.info(
+            "Valid structure generation outputs detected on disk. Skipping execution."
+        )
+        return {**state, "configs": outfile, "outfile": None}
 
     # Handle case where input is list of Atoms (e.g. from NEB generation) but outfile is list of files.
     # We merge all outputs to the first file in the list.
@@ -524,7 +578,8 @@ def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
 
     for config_file in state["configs"]:
         # Clean data first
-        cleaned_file = config_file.replace(".xyz", ".cleaned.xyz")
+        current_iter = state.get("iteration", 0)
+        cleaned_file = resolve_step_path(config_file, "cleaned", current_iter)
         clean_configset_data(
             ConfigSet(config_file), OutputSpec(cleaned_file, overwrite=True)
         )

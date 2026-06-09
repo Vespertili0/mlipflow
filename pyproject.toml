@@ -30,6 +30,7 @@ dependencies = [
     "quippy-ase",
     "torch-dftd",
     "langgraph",
+    "langgraph-checkpoint-sqlite>=2.0.0",
 ]
 
 [project.optional-dependencies]
