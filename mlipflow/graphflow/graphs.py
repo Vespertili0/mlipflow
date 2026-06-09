@@ -12,7 +12,7 @@ from mlipflow.graphflow.nodes import (
     run_apply_basin_constraints,
     run_config_fps_selection,
     run_config_uncertainty_selection,
-    run_dft_sp,
+    run_dft_sp_chunked,
     run_generate_neb_pairs,
     run_mace_fit,
     run_mlip_sp,
@@ -51,7 +51,7 @@ def execute_dft_single_point_block():
     logger.info("...Executing DFT single-point block...")
     graph = StateGraph(EnsembleState)
 
-    graph.add_node("dft_sp", run_dft_sp)
+    graph.add_node("dft_sp", run_dft_sp_chunked)
     graph.add_node("assess&select", assess_n_select)
 
     graph.add_edge(START, "dft_sp")
@@ -115,15 +115,19 @@ def execute_opt_neb_combination_block():
     graph = StateGraph(EnsembleState)
 
     graph.add_node("run_optimisation", run_mlip_structure_generation)
+    graph.add_node("check_config_labels", run_topology_relabel)
     graph.add_node("switch_to_neb", switch_to_neb_generation)
     graph.add_node("gen_and_run_neb", run_generate_neb_pairs)
+    graph.add_node("merge_configs", merge_configs)
     graph.add_node("mlip_sp", run_mlip_sp)
     graph.add_node("select_configs", run_config_uncertainty_selection)
 
     graph.add_edge(START, "run_optimisation")
-    graph.add_edge("run_optimisation", "switch_to_neb")
+    graph.add_edge("run_optimisation", "check_config_labels")
+    graph.add_edge("check_config_labels", "switch_to_neb")
     graph.add_edge("switch_to_neb", "gen_and_run_neb")
-    graph.add_edge("gen_and_run_neb", "mlip_sp")
+    graph.add_edge("gen_and_run_neb", "merge_configs")
+    graph.add_edge("merge_configs", "mlip_sp")
     graph.add_edge("mlip_sp", "select_configs")
     graph.add_edge("select_configs", END)
 

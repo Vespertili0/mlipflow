@@ -250,6 +250,10 @@ def train_gmm(
 
     # We use start_idx=0 since max_k is usually small, so we want to search the entire curve
     optimal_k_idx = find_robust_elbow(bics, start_idx=0) - 1
+    logger.info(
+        f"Best GMM with K={bic_history[optimal_k_idx][0]} "
+        f"and BIC={bic_history[optimal_k_idx][1]:.2f}"
+    )
 
     # Retrieve the best GMM at the elbow point
     return gmm_history[optimal_k_idx]

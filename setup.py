@@ -4,7 +4,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="mlipflow",
-    version="0.3",
+    version="0.4.0",
     description="Code for generating MLIPs using wfl",
     packages=find_packages(),
     install_requires=[],

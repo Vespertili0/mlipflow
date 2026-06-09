@@ -76,6 +76,7 @@ def prepare_remote(
     n_cores: int,
     num_inputs_per_queued_job: int,
     job_name: str,
+    max_mem_tot: str = "32GB",
     env_vars: list[str] | None = None,
     pre_cmds: list[str] | None = None,
     post_cmds: list[str] | None = None,
@@ -113,7 +114,10 @@ def prepare_remote(
         env_vars = []
     return RemoteInfo(
         resources=Resources(
-            max_time=max_time, num_cores=n_cores, max_mem_tot="32GB", partitions="work"
+            max_time=max_time,
+            num_cores=n_cores,
+            max_mem_tot=max_mem_tot,
+            partitions="work",
         ),
         sys_name=sys_name,
         num_inputs_per_queued_job=num_inputs_per_queued_job,

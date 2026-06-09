@@ -185,7 +185,7 @@ def run_dft_sp(state: EnsembleState) -> EnsembleState:
     return {**state, "configs": outfile, "outfile": None}
 
 
-def run_dft_sp_block(state: EnsembleState) -> EnsembleState:
+def run_dft_sp_chunked(state: EnsembleState) -> EnsembleState:
     """Run chunked DFT single-point calculations on configurations.
 
     Args:
@@ -223,8 +223,8 @@ def run_dft_sp_block(state: EnsembleState) -> EnsembleState:
             dftd3=dft_kwargs.get("dftd3", False),
             ecut_eV=dft_kwargs.get("ecut_eV", 450),
             chunk_size=dft_kwargs.get("chunk_size", 50),
-            max_time=dft_kwargs.get("max_time", "01:30:00"),
-            job_name=dft_kwargs.get("job_name", "QE_"),
+            #    max_time=dft_kwargs.get("max_time", "01:30:00"),
+            #    job_name=dft_kwargs.get("job_name", "QE_"),
             keep_info_keys=dft_kwargs.get(
                 "keep_info_keys", ["DFT_energy", "slab", "species"]
             ),
@@ -371,36 +371,6 @@ def _run_structure_generation_logic(
 
     energy_key = f"last_op__{op_name}_energy"
     force_key = f"last_op__{op_name}_forces"
-
-    # Try to determine output filenames.
-    # If configs is a list of strings, we use it.
-    # If it's a ConfigSet/list(Atoms), we need to generate output filenames based on state['configs'] or similar?
-    # Or just generic naming?
-    # The generation nodes usually take (inputs, outputs).
-
-    # Case 1: configs passed from state (list of files) - handled in wrapper
-    # Case 2: configs passed from prep node (ConfigSet/iterable) - output needs new name
-
-    # Let's derive output names from the original state configs if possible, or create new ones?
-    # But wait, if configs is just atoms, we don't know which file they came from.
-    # We should assume 'outfile' is needed.
-    # Let's use a generic naming scheme or rely on state['configs'] if we assume 1-to-1 mapping?
-    # No, splitting/merging might happen.
-
-    # Simplest approach: Use state['configs'] to derive names, assuming parallelism/order is maintained?
-    # Or just generate a single large output file or list of files corresponding to inputs?
-
-    # If 'configs' arg is provided, use it.
-
-    # Let's just create output filenames based on the input names from state['configs']
-    # This might be brittle if configs is not state['configs'].
-
-    # BETTER: just create new filenames based on what we have.
-    # If configs is list[str], easy.
-    # If configs is ConfigSet/Atoms, we need a list of output *files*.
-
-    # For now, let's assume we output to files derived from state['configs'] with a suffix.
-    # This matches the behavior of 'run_mlip_structure_generation'.
 
     current_files = state["configs"]
     outfile = [
