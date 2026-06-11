@@ -45,11 +45,16 @@ def test_datamanager_deprecation_warnings(tmp_path):
     # check_maxforce_and_cleanarrays warning
     in_file = tmp_path / "in.xyz"
     out_clean = tmp_path / "clean.xyz"
-    at = Atoms("H")
+    at = Atoms("H", positions=[[0.0, 0.0, 0.0]])
     at.info["DFT_energy"] = -1.0
-    at.arrays["DFT_forces"] = [[0.0, 0.0, 0.0]]
+    import numpy as np
+
+    at.arrays["DFT_forces"] = np.array([[0.0, 0.0, 0.0]])
     at.info["last_op__md_energy"] = -1.0
-    at.arrays["last_op__md_forces"] = [[0.0, 0.0, 0.0]]
+    at.arrays["last_op__md_forces"] = np.array([[0.0, 0.0, 0.0]])
+    at.arrays["numbers"] = np.array([1])
+    at.arrays["positions"] = np.array([[0.0, 0.0, 0.0]])
+    at.arrays["tags"] = np.array([0])
     write(in_file, at)
     with pytest.warns(
         DeprecationWarning,
@@ -63,7 +68,10 @@ def test_datamanager_deprecation_warnings(tmp_path):
     with pytest.warns(
         DeprecationWarning, match="DataManager.merge_clean_chunks is deprecated"
     ):
-        dm.merge_clean_chunks([str(file1), str(file2)], str(out_file))
+        from unittest.mock import patch
+
+        with patch("mlipflow.data.processing.OutputSpec"):
+            dm.merge_clean_chunks([str(file1), str(file2)], str(out_file))
 
 
 def test_datamanager_setup_iteration_and_properties(tmp_path):

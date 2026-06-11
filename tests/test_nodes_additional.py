@@ -32,7 +32,7 @@ def test_switch_to_neb_generation():
     """Test switch_to_neb_generation correctly updates strategy and parameters."""
     state = EnsembleState(
         configs=["c1.xyz"],
-        structure_gen_strategy=MDGen(params={"steps": 10}),
+        structure_gen_strategy=MDGen(params={"steps": 10}, uncertain_thrs=0.1),
         calculation_kwargs={
             "mlip_gen": {"dispersion": True},
             "neb__mlip_gen": {"dispersion": False},

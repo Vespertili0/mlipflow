@@ -36,7 +36,7 @@ class TestBasinCollapseValidation:
         state = EnsembleState(configs=["input.xyz"], mlip_strategy=mlip_mock)
 
         # Patch MACECalculator to prevent actual model loading
-        with patch("mlipflow.graphflow.nodes.MACECalculator"):
+        with patch("mace.calculators.MACECalculator"):
             result = run_rematch_basin_collapse(state)
 
         assert result["configs"] == ["input.xyz"]
@@ -46,9 +46,9 @@ class TestBasinCollapseGrouping:
     """Tests for the grouping and energy-selection logic."""
 
     @patch("mlipflow.graphflow.nodes.OutputSpec")
-    @patch("mlipflow.graphflow.nodes.compute_rematch_matrix")
-    @patch("mlipflow.graphflow.nodes.compute_descriptors")
-    @patch("mlipflow.graphflow.nodes.MACECalculator")
+    @patch("mlipflow.data.rematch.compute_rematch_matrix")
+    @patch("mlipflow.data.gmm.compute_descriptors")
+    @patch("mace.calculators.MACECalculator")
     @patch("mlipflow.graphflow.nodes.ConfigSet")
     def test_basin_collapse_groups_identical(
         self,
@@ -64,8 +64,9 @@ class TestBasinCollapseGrouping:
         for i in range(4):
             at = Atoms("H", positions=[[0, 0, 0]])
             at.info["energy"] = float(i)  # energies: 0, 1, 2, 3
-            at.calc = MagicMock()
-            at.calc.results = {"energy": float(i)}
+            from ase.calculators.singlepoint import SinglePointCalculator
+
+            at.calc = SinglePointCalculator(at, energy=float(i))
             atoms_list.append(at)
 
         mock_configset.return_value = atoms_list
@@ -102,9 +103,9 @@ class TestBasinCollapseGrouping:
         assert len(collapsed) == 2
 
     @patch("mlipflow.graphflow.nodes.OutputSpec")
-    @patch("mlipflow.graphflow.nodes.compute_rematch_matrix")
-    @patch("mlipflow.graphflow.nodes.compute_descriptors")
-    @patch("mlipflow.graphflow.nodes.MACECalculator")
+    @patch("mlipflow.data.rematch.compute_rematch_matrix")
+    @patch("mlipflow.data.gmm.compute_descriptors")
+    @patch("mace.calculators.MACECalculator")
     @patch("mlipflow.graphflow.nodes.ConfigSet")
     def test_basin_collapse_keeps_lowest_energy(
         self,
@@ -119,8 +120,9 @@ class TestBasinCollapseGrouping:
         energies = [5.0, 1.0, 3.0]  # Index 1 has lowest energy
         for e in energies:
             at = Atoms("H", positions=[[0, 0, 0]])
-            at.calc = MagicMock()
-            at.calc.results = {"energy": e}
+            from ase.calculators.singlepoint import SinglePointCalculator
+
+            at.calc = SinglePointCalculator(at, energy=e)
             atoms_list.append(at)
 
         mock_configset.return_value = atoms_list

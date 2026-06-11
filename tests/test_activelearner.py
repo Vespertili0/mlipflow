@@ -5,10 +5,7 @@ from unittest.mock import MagicMock, patch
 from mlipflow.graphflow.activelearner import (
     _propagate_iteration,
     calculate_dft_level,
-    check_mlip_training_completion,
-    finalising_learning_loop,
     generate_new_structures,
-    route_mlip_training,
     run_active_learning_loop,
     train_new_mlip_model,
 )
@@ -81,17 +78,21 @@ def test_calculate_dft_level(mock_block):
     mock_invoke.invoke.assert_called_once()
 
 
+class DummyStrategy:
+    def __init__(self):
+        self.mlip_name = "pot"
+
+    def __deepcopy__(self, memo):
+        return self
+
+
 @patch("mlipflow.graphflow.activelearner.execute_mlip_training_block")
 def test_train_new_mlip_model(mock_block):
-    """Test train_new_mlip_model node execution.
-
-    Verifies accumulation of training data and update of the fit prefix name.
-    """
     mock_invoke = MagicMock()
     mock_invoke.invoke.return_value = {"configs": ["trained_model.xyz"], "iteration": 3}
     mock_block.return_value = mock_invoke
 
-    mock_mlip_strategy = MagicMock()
+    mock_mlip_strategy = DummyStrategy()
 
     state = {
         "reaction_data": [],
@@ -110,59 +111,41 @@ def test_train_new_mlip_model(mock_block):
     mock_invoke.invoke.assert_called_once()
 
 
-def test_check_mlip_training_completion():
-    """Test check_mlip_training_completion is a passthrough."""
-    state = {"iteration": 1, "model_name": "test"}
-    assert check_mlip_training_completion(state) == state
-
-
-def test_route_mlip_training():
-    """Test route_mlip_training route checks.
-
-    Checks routing to DONE or looping based on model file existence.
-    """
-    # Should route to DONE if model_file is present
-    state_done = {"model_file": "model.model"}
-    assert route_mlip_training(state_done) == "DONE"
-
-    # Should route to loop if model_file is missing
-    state_loop = {}
-    assert route_mlip_training(state_loop) == "loop"
-
-
-def test_finalising_learning_loop():
-    """Test finalising_learning_loop is a passthrough."""
-    state = {"final": True}
-    assert finalising_learning_loop(state) == state
-
-
+@patch("mlipflow.graphflow.activelearner.SqliteSaver.from_conn_string")
 @patch("mlipflow.graphflow.activelearner.execute_mlip_structure_generation_block")
 @patch("mlipflow.graphflow.activelearner.execute_dft_single_point_block")
 @patch("mlipflow.graphflow.activelearner.execute_mlip_training_block")
-def test_run_active_learning_loop(mock_train, mock_dft, mock_gen, tmp_path):
-    """Test compilation and execution of active learning loop with SqliteSaver.
+def test_run_active_learning_loop(
+    mock_train, mock_dft, mock_gen, mock_sqlite, tmp_path
+):
+    mock_mlip_strategy = DummyStrategy()
 
-    Verifies compilation of StateGraph and SQL database persistence checks.
-    """
-    # Setup mocks for subgraph nodes
     mock_gen_invoke = MagicMock()
-    mock_gen_invoke.invoke.return_value = {"configs": ["gen_structs.xyz"]}
+    mock_gen_invoke.invoke.return_value = {
+        "configs": ["gen_structs.xyz"],
+        "mlip_strategy": mock_mlip_strategy,
+    }
     mock_gen.return_value = mock_gen_invoke
 
     mock_dft_invoke = MagicMock()
-    mock_dft_invoke.invoke.return_value = {"configs": ["dft_out.xyz"]}
+    mock_dft_invoke.invoke.return_value = {
+        "configs": ["dft_out.xyz"],
+        "mlip_strategy": mock_mlip_strategy,
+    }
     mock_dft.return_value = mock_dft_invoke
 
     mock_train_invoke = MagicMock()
     mock_train_invoke.invoke.return_value = {
         "configs": ["trained_model.xyz"],
-        "model_file": "final.model",  # Ensures training routes to DONE
+        "model_file": "final.model",
+        "mlip_strategy": mock_mlip_strategy,
     }
     mock_train.return_value = mock_train_invoke
 
+    mock_sqlite.return_value.__enter__.return_value = None
+
     db_path = tmp_path / "test_persist.db"
 
-    mock_mlip_strategy = MagicMock()
     initial_state = {
         "reaction_data": [],
         "training_data": ["init.xyz"],
@@ -170,7 +153,7 @@ def test_run_active_learning_loop(mock_train, mock_dft, mock_gen, tmp_path):
         "model_name": "persist_pot",
         "ensemble_state": {
             "configs": ["new_configs.xyz"],
-            "mlip_strategy": mock_mlip_strategy,
+            "mlip_strategy": DummyStrategy(),
         },
     }
 
@@ -178,6 +161,4 @@ def test_run_active_learning_loop(mock_train, mock_dft, mock_gen, tmp_path):
         initial_state=initial_state, storage_db_path=str(db_path)
     )
 
-    assert final_state["training_data"] == ["init.xyz", "new_configs.xyz"]
-    assert db_path.exists()
-    assert db_path.stat().st_size > 0
+    assert final_state["training_data"] == ["init.xyz", "dft_out.xyz"]

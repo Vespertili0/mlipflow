@@ -17,7 +17,7 @@ def _compute_batched_rematch_block(
     mask_b: torch.Tensor,
     gamma: float = 0.1,
     zeta: int = 1,
-    sinkhorn_iters: int = 30,
+    sinkhorn_iters: int = 100,
     eps: float = 1e-12,
 ) -> torch.Tensor:
     """
@@ -75,7 +75,10 @@ def _compute_batched_rematch_block(
     c = (mask_b.to(dtype) / N_b).unsqueeze(0).expand(B_a, B_b, A_max_b)
 
     # 4. Gibbs kernel with padding elements zeroed out
-    K = torch.exp(S / gamma) * mask_4d_float
+    # Stabilize S by subtracting the max value per pair
+    # Stabilize S
+    S_max = S.max(dim=-1, keepdim=True)[0].max(dim=-2, keepdim=True)[0]
+    K = torch.exp((S - S_max) / gamma) * mask_4d_float
 
     u = torch.ones_like(r)
     v = torch.ones_like(c)
@@ -98,7 +101,7 @@ def compute_rematch_matrix(
     mask: torch.Tensor,
     gamma: float = 0.1,
     zeta: int = 1,
-    sinkhorn_iters: int = 30,
+    sinkhorn_iters: int = 100,
     eps: float = 1e-12,
     block_size: int = 512,
 ) -> torch.Tensor:
@@ -226,6 +229,9 @@ def _compute_rematch_matrix_impl(
             raw[i_start:i_end, j_start:j_end] = _compute_batched_rematch_block(
                 X_i, X_j, m_i, m_j, **kernel_kwargs
             )
+
+    # Enforce symmetry on the raw matrix
+    raw = 0.5 * (raw + raw.transpose(0, 1))
 
     # Symmetric normalisation: K_norm(a,b) = K_raw(a,b) / sqrt(K_raw(a,a) * K_raw(b,b))
     diag = torch.diagonal(raw, dim1=0, dim2=1)

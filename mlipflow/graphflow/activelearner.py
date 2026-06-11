@@ -89,7 +89,7 @@ def check_mlip_training_completion(state: ActiveLearningFlow) -> ActiveLearningF
 # Gate function checking MLIP training completion
 def route_mlip_training(state: ActiveLearningFlow):
     """Route based on whether a trained model file exists."""
-    if state.get("model_file"):
+    if state.get("model_file") or state.get("ensemble_state", {}).get("model_file"):
         return "DONE"
     return "loop"
 
@@ -136,12 +136,11 @@ def run_active_learning_loop(
     graph.add_edge("finalise", END)
 
     # Establish durable local persistence with timeout for concurrent access
-    memory_layer = SqliteSaver.from_conn_string(storage_db_path)
+    with SqliteSaver.from_conn_string(storage_db_path) as memory_layer:
+        runtime_graph = graph.compile(checkpointer=memory_layer)
 
-    runtime_graph = graph.compile(checkpointer=memory_layer)
+        thread_id = f"workflow_{initial_state.get('model_name', 'unnamed_pot')}"
+        execution_config = {"configurable": {"thread_id": thread_id}}
 
-    thread_id = f"workflow_{initial_state.get('model_name', 'unnamed_pot')}"
-    execution_config = {"configurable": {"thread_id": thread_id}}
-
-    logger.info("Invoking active learning loop with thread_id=%s", thread_id)
-    return runtime_graph.invoke(initial_state, config=execution_config)
+        logger.info("Invoking active learning loop with thread_id=%s", thread_id)
+        return runtime_graph.invoke(initial_state, config=execution_config)
