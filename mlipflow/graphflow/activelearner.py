@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import logging
-from typing import TYPE_CHECKING, TypedDict
+from typing import TypedDict
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
@@ -12,9 +12,7 @@ from mlipflow.graphflow.graphs import (
     execute_mlip_structure_generation_block,
     execute_mlip_training_block,
 )
-
-if TYPE_CHECKING:
-    from mlipflow.graphflow.nodes import EnsembleState
+from mlipflow.graphflow.nodes import EnsembleState  # noqa: TC001
 
 logger = logging.getLogger(__name__)
 
