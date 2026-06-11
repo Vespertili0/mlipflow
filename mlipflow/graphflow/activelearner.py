@@ -136,11 +136,19 @@ def run_active_learning_loop(
     graph.add_edge("finalise", END)
 
     # Establish durable local persistence with timeout for concurrent access
-    with SqliteSaver.from_conn_string(storage_db_path) as memory_layer:
-        runtime_graph = graph.compile(checkpointer=memory_layer)
+    if storage_db_path == "memory":
+        from langgraph.checkpoint.memory import MemorySaver
 
+        memory_layer = MemorySaver()
+        runtime_graph = graph.compile(checkpointer=memory_layer)
         thread_id = f"workflow_{initial_state.get('model_name', 'unnamed_pot')}"
         execution_config = {"configurable": {"thread_id": thread_id}}
-
         logger.info("Invoking active learning loop with thread_id=%s", thread_id)
         return runtime_graph.invoke(initial_state, config=execution_config)
+    else:
+        with SqliteSaver.from_conn_string(storage_db_path) as memory_layer:
+            runtime_graph = graph.compile(checkpointer=memory_layer)
+            thread_id = f"workflow_{initial_state.get('model_name', 'unnamed_pot')}"
+            execution_config = {"configurable": {"thread_id": thread_id}}
+            logger.info("Invoking active learning loop with thread_id=%s", thread_id)
+            return runtime_graph.invoke(initial_state, config=execution_config)
