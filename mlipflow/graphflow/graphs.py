@@ -17,6 +17,7 @@ from mlipflow.graphflow.nodes import (
     run_mace_fit,
     run_mlip_sp,
     run_mlip_structure_generation,
+    run_rematch_basin_collapse,
     run_topology_relabel,
     switch_to_neb_generation,
 )
@@ -116,6 +117,7 @@ def execute_opt_neb_combination_block():
 
     graph.add_node("run_optimisation", run_mlip_structure_generation)
     graph.add_node("check_config_labels", run_topology_relabel)
+    graph.add_node("basin_collapse", run_rematch_basin_collapse)
     graph.add_node("switch_to_neb", switch_to_neb_generation)
     graph.add_node("gen_and_run_neb", run_generate_neb_pairs)
     graph.add_node("merge_configs", merge_configs)
@@ -124,7 +126,8 @@ def execute_opt_neb_combination_block():
 
     graph.add_edge(START, "run_optimisation")
     graph.add_edge("run_optimisation", "check_config_labels")
-    graph.add_edge("check_config_labels", "switch_to_neb")
+    graph.add_edge("check_config_labels", "basin_collapse")
+    graph.add_edge("basin_collapse", "switch_to_neb")
     graph.add_edge("switch_to_neb", "gen_and_run_neb")
     graph.add_edge("gen_and_run_neb", "merge_configs")
     graph.add_edge("merge_configs", "mlip_sp")

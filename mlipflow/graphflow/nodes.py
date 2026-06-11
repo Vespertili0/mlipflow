@@ -799,6 +799,111 @@ def run_topology_relabel(state: EnsembleState) -> EnsembleState:
 #        raise RuntimeError(f"MLIP error evaluation failed: {str(e)}")
 
 
+def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
+    """
+    Collapse redundant PES minima using a ReMATCH structural similarity kernel.
+
+    Configurations whose pairwise ReMATCH similarity exceeds a threshold are
+    grouped into basins.  Within each basin, only the configuration with the
+    lowest MLIP potential energy is retained.  The surviving representatives
+    are written to disk and the state is updated for downstream NEB pairing.
+
+    Parameters
+    ----------
+    state : EnsembleState
+        Current workflow state.  Must contain ``"configs"`` and
+        ``"mlip_strategy"`` keys.  Optional ``"calculation_kwargs"["rematch"]``
+        dict may supply ``similarity_threshold``, ``gamma``, ``zeta``, and
+        ``block_size``.
+
+    Returns
+    -------
+    EnsembleState
+        Updated state with collapsed configuration file list.
+
+    Raises
+    ------
+    ValueError
+        If ``state["configs"]`` is missing or empty.
+    KeyError
+        If ``state["mlip_strategy"]`` is missing.
+    """
+    import torch
+    from mace.calculators import MACECalculator
+
+    from mlipflow.data.gmm import compute_descriptors
+    from mlipflow.data.rematch import compute_rematch_matrix
+
+    logger.info("Executing ReMATCH structural basin collapse.")
+
+    if not state.get("configs"):
+        raise ValueError("No configurations provided in state.")
+
+    if "mlip_strategy" not in state:
+        raise KeyError("mlip_strategy not found in state.")
+
+    # Read parameters from state
+    rematch_kwargs = state.get("calculation_kwargs", {}).get("rematch", {})
+    similarity_threshold = rematch_kwargs.get("similarity_threshold", 0.99)
+    gamma = rematch_kwargs.get("gamma", 0.1)
+    zeta = rematch_kwargs.get("zeta", 1)
+    block_size = rematch_kwargs.get("block_size", 512)
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    current_files = state["configs"]
+
+    # Extract MACE descriptors
+    mlip_calc = MACECalculator(state["mlip_strategy"].model_file, device=device)
+    atoms_list = list(ConfigSet(current_files))
+    num_structures = len(atoms_list)
+
+    if num_structures < 2:
+        logger.info("Fewer than 2 configurations; skipping basin collapse.")
+        return {**state}
+
+    X_padded, _X_flat = compute_descriptors(
+        atoms_list, mlip_calc, device, torch.float32
+    )
+    mask = torch.any(X_padded != 0, dim=-1)
+
+    # Compute GPU-accelerated structural matching matrix
+    with torch.no_grad():
+        sim_mat = compute_rematch_matrix(
+            X_padded, mask, gamma=gamma, zeta=zeta, block_size=block_size
+        )
+
+    # Group matched configurations using connected-component adjacency
+    visited = [False] * num_structures
+    collapsed_configs = []
+
+    for i in range(num_structures):
+        if visited[i]:
+            continue
+
+        basin_indices = torch.where(sim_mat[i] > similarity_threshold)[0].tolist()
+
+        # Retain the configuration with the lowest potential energy
+        best_idx = min(
+            basin_indices, key=lambda idx: atoms_list[idx].get_potential_energy()
+        )
+        collapsed_configs.append(atoms_list[best_idx])
+
+        for idx in basin_indices:
+            visited[idx] = True
+
+    # Write survivors to disk
+    out_file = "collapsed_basin_configs.xyz"
+    OutputSpec(out_file).write(ConfigSet(collapsed_configs))
+
+    logger.info(
+        "Basin collapse complete. Compressed %d -> %d distinct states.",
+        num_structures,
+        len(collapsed_configs),
+    )
+
+    return {**state, "configs": [out_file]}
+
+
 # def clean_dft_data(state: EnsembleState) -> EnsembleState:
 #    """Clean DFT data by removing unnecessary info and standardizing keys.
 #
