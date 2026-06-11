@@ -7,14 +7,14 @@ from typing import TYPE_CHECKING, TypedDict
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 
-from .graphs import (
+from mlipflow.graphflow.graphs import (
     execute_dft_single_point_block,
     execute_mlip_structure_generation_block,
     execute_mlip_training_block,
 )
 
 if TYPE_CHECKING:
-    from .nodes import EnsembleState
+    from mlipflow.graphflow.nodes import EnsembleState
 
 logger = logging.getLogger(__name__)
 
