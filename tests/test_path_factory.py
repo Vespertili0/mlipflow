@@ -78,3 +78,31 @@ def test_create_iteration_directory(tmp_path):
 
     for path_str in dirs.values():
         assert Path(path_str).exists()
+
+
+def test_resolve_step_path_with_step_counter(tmp_path):
+    """Test resolve_step_path bypasses stem extraction when step_counter is used.
+
+    Verifies that the filename uses chronological sequencing if a counter is provided.
+    """
+    workdir = tmp_path / "run_dir"
+
+    # Check resolution with step counter
+    resolved = resolve_step_path(
+        step_suffix="dft_sp", iteration=2, step_counter=4, workdir=workdir
+    )
+
+    expected_path = workdir / "iter_2" / "04_dft_sp.xyz"
+    assert resolved == str(expected_path)
+    assert (workdir / "iter_2").exists()
+
+
+def test_resolve_step_path_no_input_no_counter_raises(tmp_path):
+    """Test resolve_step_path raises ValueError if both input_file and step_counter are missing."""
+    import pytest
+
+    workdir = tmp_path / "run_dir"
+    with pytest.raises(
+        ValueError, match="input_file is required when step_counter is not provided."
+    ):
+        resolve_step_path(step_suffix="dft_sp", iteration=2, workdir=workdir)

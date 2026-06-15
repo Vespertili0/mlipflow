@@ -62,7 +62,9 @@ def test_run_dft_sp_idempotency(mock_resolve, mock_run, tmp_path):
     assert new_state["configs"] == [str(out_file)]
     assert new_state["outfile"] is None
     mock_run.assert_not_called()
-    mock_resolve.assert_called_once_with("input.xyz", "dft_sp", 2)
+    mock_resolve.assert_called_once_with(
+        step_suffix="dft_sp", iteration=2, step_counter=1
+    )
 
 
 @patch("mlipflow.graphflow.nodes.run_chunked_qe_sp")
@@ -81,7 +83,9 @@ def test_run_dft_sp_chunked_idempotency(mock_resolve, mock_run_chunked, tmp_path
     assert new_state["configs"] == [str(out_file)]
     assert new_state["outfile"] is None
     mock_run_chunked.assert_not_called()
-    mock_resolve.assert_called_once_with("input.xyz", "dft_sp", 2)
+    mock_resolve.assert_called_once_with(
+        step_suffix="dft_sp", iteration=2, step_counter=1
+    )
 
 
 @patch("mlipflow.graphflow.nodes.run_single_point")
@@ -101,7 +105,9 @@ def test_run_mlip_sp_idempotency(mock_resolve, mock_run, tmp_path):
     assert new_state["configs"] == [str(out_file)]
     assert new_state["outfile"] is None
     mock_run.assert_not_called()
-    mock_resolve.assert_called_once_with("input.xyz", "mace_sp", 1)
+    mock_resolve.assert_called_once_with(
+        step_suffix="mace_sp", iteration=1, step_counter=1
+    )
 
 
 @patch("mlipflow.graphflow.nodes.resolve_step_path")
@@ -128,7 +134,9 @@ def test_run_mlip_structure_generation_idempotency(mock_resolve, tmp_path):
     assert new_state["configs"] == [str(out_file)]
     assert new_state["outfile"] is None
     strategy_mock.generate_new_structures.assert_not_called()
-    mock_resolve.assert_called_once_with("input.xyz", "md", 3)
+    mock_resolve.assert_called_once_with(
+        step_suffix="structure_md", iteration=3, step_counter=1
+    )
 
 
 def test_run_generate_neb_pairs_missing_neb_config():

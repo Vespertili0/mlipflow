@@ -44,7 +44,10 @@ class ActiveLearningFlow(TypedDict):
 def _propagate_iteration(state: ActiveLearningFlow) -> EnsembleState:
     """Copy the outer iteration index into the ensemble_state payload."""
     es = copy.deepcopy(state["ensemble_state"])
-    es["iteration"] = state.get("iteration", 0)
+    current_iter = state.get("iteration", 0)
+    if es.get("iteration") != current_iter:
+        es["step_counter"] = 1
+    es["iteration"] = current_iter
     return es
 
 

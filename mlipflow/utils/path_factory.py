@@ -15,23 +15,28 @@ logger = logging.getLogger(__name__)
 
 
 def resolve_step_path(
-    input_file: str | Path,
-    step_suffix: str,
-    iteration: int,
+    input_file: str | Path | None = None,
+    step_suffix: str = "",
+    iteration: int = 0,
+    step_counter: int | None = None,
     workdir: str | Path = "iterations",
 ) -> str:
     """Build a deterministic output path for a workflow step.
 
     Parameters
     ----------
-    input_file : str or Path
+    input_file : str or Path, optional
         The original input file whose stem is used to derive the
-        output filename.
+        output filename. Required if `step_counter` is None.
     step_suffix : str
         A short identifier for the workflow step, appended to the
         clean stem (e.g. ``"dft_sp"``, ``"mace_sp"``, ``"md"``).
     iteration : int
         The current active-learning iteration index.
+    step_counter : int, optional
+        The running workflow step counter. If provided, the output
+        filename is chronologically sequenced (e.g. ``01_basin_md.xyz``),
+        and `input_file` is ignored for path construction.
     workdir : str or Path, optional
         Root directory under which iteration folders are created.
         Defaults to ``"iterations"``.
@@ -40,29 +45,40 @@ def resolve_step_path(
     -------
     str
         Absolute-style string path of the form
+        ``<workdir>/iter_<iteration>/<step_counter:02d>_<step_suffix>.xyz``
+        if `step_counter` is given, else
         ``<workdir>/iter_<iteration>/<clean_stem>_<step_suffix>.xyz``.
     """
-    base_path = Path(input_file)
-    stem_name = base_path.stem
-
-    # Strip away any previous internal loop designations to prevent
-    # path-nesting bugs when files are re-processed across iterations.
-    for tag in (
-        ".cleaned",
-        ".dft",
-        ".mace",
-        "_dft_sp",
-        "_mace_sp",
-        "_md",
-        "_opt",
-        "_neb",
-    ):
-        stem_name = stem_name.split(tag)[0]
-
     target_dir = Path(workdir) / f"iter_{iteration}"
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    resolved = str(target_dir / f"{stem_name}_{step_suffix}.xyz")
+    if step_counter is not None:
+        resolved = str(target_dir / f"{step_counter:02d}_{step_suffix}.xyz")
+    else:
+        if input_file is None:
+            raise ValueError(
+                "input_file is required when step_counter is not provided."
+            )
+
+        base_path = Path(input_file)
+        stem_name = base_path.stem
+
+        # Strip away any previous internal loop designations to prevent
+        # path-nesting bugs when files are re-processed across iterations.
+        for tag in (
+            ".cleaned",
+            ".dft",
+            ".mace",
+            "_dft_sp",
+            "_mace_sp",
+            "_md",
+            "_opt",
+            "_neb",
+        ):
+            stem_name = stem_name.split(tag)[0]
+
+        resolved = str(target_dir / f"{stem_name}_{step_suffix}.xyz")
+
     logger.debug("Resolved step path: %s", resolved)
     return resolved
 
