@@ -768,7 +768,12 @@ def run_config_fps_selection(state: EnsembleState) -> EnsembleState:
 
     # Defaults
     desc_key = selection_kwargs.get("descriptor_key", "SOAP")
-    output_prefix = "selection"
+    step_counter = state.get("step_counter", 1)
+    current_iter = state.get("iteration", 0)
+    output_prefix_resolved = resolve_step_path(
+        step_suffix="selection", iteration=current_iter, step_counter=step_counter
+    )
+    output_prefix = output_prefix_resolved.replace(".xyz", "")
     seed = selection_kwargs.get("seed", 10)
 
     logger.info("Initializing ConfigurationSelector")
@@ -803,14 +808,21 @@ def run_config_fps_selection(state: EnsembleState) -> EnsembleState:
     # wait, select_final writes to f'{self.output_prefix}_final_selection.xyz'.
     _log_config_counts(ConfigSet(final_output_file), msg="after selection")
 
-    return {**state, "configs": [final_output_file]}
+    return {**state, "configs": [final_output_file], "step_counter": step_counter + 1}
 
 
 def run_config_uncertainty_selection(state: EnsembleState) -> EnsembleState:
     """ """
     logger.info("Running uncertainty-based configuration selection...")
 
-    selected_configs = "selected_configs.xyz"
+    step_counter = state.get("step_counter", 1)
+    current_iter = state.get("iteration", 0)
+
+    selected_configs = resolve_step_path(
+        step_suffix="selected_configs",
+        iteration=current_iter,
+        step_counter=step_counter,
+    )
 
     select_by_uncertainty(
         train_file=state["last_training_configs"],
@@ -825,7 +837,7 @@ def run_config_uncertainty_selection(state: EnsembleState) -> EnsembleState:
         # dtype: "torch.dtype" = None,
     )
 
-    return {**state, "configs": [selected_configs]}
+    return {**state, "configs": [selected_configs], "step_counter": step_counter + 1}
 
 
 # def run_gmm_relabel(state: EnsembleState) -> EnsembleState:
@@ -883,11 +895,20 @@ def run_topology_relabel(state: EnsembleState) -> EnsembleState:
         in_file=state["configs"], **gcml_kwargs
     )
 
-    out_file = "known_configs.xyz"
-    OutputSpec(out_file).write(ConfigSet(known_configs))
-    OutputSpec("unknown_configs.xyz").write(ConfigSet(unknown_configs))
+    step_counter = state.get("step_counter", 1)
+    current_iter = state.get("iteration", 0)
 
-    return {**state, "configs": [out_file]}
+    out_file = resolve_step_path(
+        step_suffix="known_configs", iteration=current_iter, step_counter=step_counter
+    )
+    unknown_file = resolve_step_path(
+        step_suffix="unknown_configs", iteration=current_iter, step_counter=step_counter
+    )
+
+    OutputSpec(out_file).write(ConfigSet(known_configs))
+    OutputSpec(unknown_file).write(ConfigSet(unknown_configs))
+
+    return {**state, "configs": [out_file], "step_counter": step_counter + 1}
 
 
 # def validate_state(state: EnsembleState, required_keys: list[str]) -> None:
@@ -1028,8 +1049,15 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
         for idx in basin_indices:
             visited[idx] = True
 
+    step_counter = state.get("step_counter", 1)
+    current_iter = state.get("iteration", 0)
+
     # Write survivors to disk
-    out_file = "collapsed_basin_configs.xyz"
+    out_file = resolve_step_path(
+        step_suffix="collapsed_basin_configs",
+        iteration=current_iter,
+        step_counter=step_counter,
+    )
     OutputSpec(out_file).write(ConfigSet(collapsed_configs))
 
     logger.info(
@@ -1038,7 +1066,7 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
         len(collapsed_configs),
     )
 
-    return {**state, "configs": [out_file]}
+    return {**state, "configs": [out_file], "step_counter": step_counter + 1}
 
 
 # def clean_dft_data(state: EnsembleState) -> EnsembleState:

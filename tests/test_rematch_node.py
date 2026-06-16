@@ -50,8 +50,10 @@ class TestBasinCollapseGrouping:
     @patch("mlipflow.data.gmm.compute_descriptors")
     @patch("mace.calculators.MACECalculator")
     @patch("mlipflow.graphflow.nodes.ConfigSet")
+    @patch("mlipflow.graphflow.nodes.resolve_step_path")
     def test_basin_collapse_groups_identical(
         self,
+        mock_resolve,
         mock_configset,
         mock_mace_calc,
         mock_compute_desc,
@@ -59,6 +61,8 @@ class TestBasinCollapseGrouping:
         mock_output_spec,
     ):
         """Three identical + one distinct structure should collapse to 2."""
+        mock_resolve.return_value = "collapsed_basin_configs.xyz"
+
         # Build 4 atoms objects: indices 0,1,2 are "identical", index 3 is distinct
         atoms_list = []
         for i in range(4):
@@ -95,6 +99,7 @@ class TestBasinCollapseGrouping:
         result = run_rematch_basin_collapse(state)
 
         assert result["configs"] == ["collapsed_basin_configs.xyz"]
+        assert result["step_counter"] == 2
         mock_writer.write.assert_called_once()
 
         # The last ConfigSet call is for the output
@@ -107,8 +112,10 @@ class TestBasinCollapseGrouping:
     @patch("mlipflow.data.gmm.compute_descriptors")
     @patch("mace.calculators.MACECalculator")
     @patch("mlipflow.graphflow.nodes.ConfigSet")
+    @patch("mlipflow.graphflow.nodes.resolve_step_path")
     def test_basin_collapse_keeps_lowest_energy(
         self,
+        mock_resolve,
         mock_configset,
         mock_mace_calc,
         mock_compute_desc,
@@ -116,6 +123,8 @@ class TestBasinCollapseGrouping:
         mock_output_spec,
     ):
         """Among duplicates, the configuration with the lowest energy is retained."""
+        mock_resolve.return_value = "collapsed_basin_configs.xyz"
+
         atoms_list = []
         energies = [5.0, 1.0, 3.0]  # Index 1 has lowest energy
         for e in energies:
@@ -142,7 +151,9 @@ class TestBasinCollapseGrouping:
 
         state = EnsembleState(configs=["input.xyz"], mlip_strategy=mlip_mock)
 
-        run_rematch_basin_collapse(state)
+        result = run_rematch_basin_collapse(state)
+
+        assert result["step_counter"] == 2
 
         # Should collapse to 1 config — the one with energy 1.0 (index 1)
         final_configset_call = mock_configset.call_args_list[-1]

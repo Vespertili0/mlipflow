@@ -115,9 +115,17 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
         def mock_rematch_basin_collapse(state):
             from wfl.configset import ConfigSet, OutputSpec
 
-            out_file = "collapsed_basin_configs.xyz"
+            from mlipflow.utils.path_factory import resolve_step_path
+
+            step_counter = state.get("step_counter", 1)
+            current_iter = state.get("iteration", 0)
+            out_file = resolve_step_path(
+                step_suffix="collapsed_basin_configs",
+                iteration=current_iter,
+                step_counter=step_counter,
+            )
             OutputSpec(out_file).write(ConfigSet(state["configs"]))
-            return {**state, "configs": [out_file]}
+            return {**state, "configs": [out_file], "step_counter": step_counter + 1}
 
         with patch(
             "mlipflow.graphflow.graphs.run_rematch_basin_collapse",

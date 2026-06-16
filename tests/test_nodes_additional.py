@@ -164,10 +164,18 @@ def test_run_topology_relabel_missing_reference_configs():
 
 @patch("mlipflow.graphflow.nodes.relabel_configs")
 @patch("mlipflow.graphflow.nodes.OutputSpec")
-def test_run_topology_relabel_basic(mock_output_spec, mock_relabel, tmp_path):
+@patch("mlipflow.graphflow.nodes.resolve_step_path")
+def test_run_topology_relabel_basic(
+    mock_resolve, mock_output_spec, mock_relabel, tmp_path
+):
     """Test run_topology_relabel normal path logic."""
     ref_file = tmp_path / "ref.xyz"
     ref_file.touch()
+
+    # Mock resolve_step_path to return simple file names for testing
+    mock_resolve.side_effect = (
+        lambda *args, **kwargs: f"{kwargs.get('step_suffix')}.xyz"
+    )
 
     # Mock relabel_configs to return list of Atoms
     atoms1 = Atoms("H")
@@ -187,6 +195,7 @@ def test_run_topology_relabel_basic(mock_output_spec, mock_relabel, tmp_path):
 
     new_state = run_topology_relabel(state)
     assert new_state["configs"] == ["known_configs.xyz"]
+    assert new_state["step_counter"] == 2
 
     # Check that OutputSpec was called to write the output configurations
     mock_output_spec.assert_any_call("known_configs.xyz")
