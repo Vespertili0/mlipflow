@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from ase.constraints import FixAtoms
 from ase.io import read
@@ -111,7 +111,19 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
         )
 
         # Compile and run
-        result = execute_initial_basin_pathsampling_md_block().invoke(state)
+        # We mock run_rematch_basin_collapse to avoid loading the real MACE model on complex real-world test data
+        def mock_rematch_basin_collapse(state):
+            from wfl.configset import ConfigSet, OutputSpec
+
+            out_file = "collapsed_basin_configs.xyz"
+            OutputSpec(out_file).write(ConfigSet(state["configs"]))
+            return {**state, "configs": [out_file]}
+
+        with patch(
+            "mlipflow.graphflow.graphs.run_rematch_basin_collapse",
+            side_effect=mock_rematch_basin_collapse,
+        ):
+            result = execute_initial_basin_pathsampling_md_block().invoke(state)
 
         # Verify
         assert result["outfile"] is None

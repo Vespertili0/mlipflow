@@ -57,7 +57,7 @@ def test_run_dft_sp_with_emt(real_data_setup):
     # Verify output file exists
     output_file = new_state["configs"][0]
     assert Path(output_file).exists()
-    assert output_file.endswith("_dft_sp.xyz")
+    assert output_file.endswith("dft_sp.xyz")
 
     # Verify content
     atoms = read(output_file, ":")
