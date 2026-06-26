@@ -26,51 +26,54 @@ def update_training_data(
 
 
 def check_maxforce_and_cleanarrays(
-    in_file: str, out_file: str, mlip_prefix: str, calc: str, max_force: float = 15
-) -> None:
-    """Remove structures from ase-file with forces exceeding threshold."""
+    in_file: str | list[Atoms] | ConfigSet,
+    out_file: str | None = None,
+    mlip_prefix: str = "MACE",
+    calc: str = "opt",
+    max_force: float = 15.0,
+) -> list[Atoms]:
+    """Remove structures with forces exceeding threshold and rename energy/force keys."""
+    if isinstance(in_file, (str, Path)):
+        configs = read(str(in_file), ":")
+    elif isinstance(in_file, ConfigSet):
+        configs = list(in_file)
+    else:
+        configs = list(in_file)
+
     keys = {"md": "md", "opt": "optimize"}
-    array_keys = [
-        "numbers",
-        "positions",
-        "tags",
-        "DFT_forces",
-        f"last_op__{keys.get(calc)}_forces",
-    ]
-    info_keys = [
-        "MD_step",
-        "DFT_energy",
-        f"last_op__{keys.get(calc)}_energy",
-        "config_type",
-        "data_type",
-    ]
+    calc_key = keys.get(calc, calc)
+    op_forces_key = f"last_op__{calc_key}_forces"
+    op_energy_key = f"last_op__{calc_key}_energy"
+    clean_prefix = mlip_prefix.rstrip("_")
 
-    all_configs = [a for a in read(in_file, ":") if "DFT_energy" in a.info]
+    selected_configs = []
+    for config in configs:
+        forces = None
+        if "DFT_forces" in config.arrays:
+            forces = config.arrays["DFT_forces"]
+        elif op_forces_key in config.arrays:
+            forces = config.arrays[op_forces_key]
+        elif f"{clean_prefix}_forces" in config.arrays:
+            forces = config.arrays[f"{clean_prefix}_forces"]
+        elif "forces" in config.arrays:
+            forces = config.arrays["forces"]
 
-    assert all_configs, "no valid structures from DFT! check data"
+        if forces is not None and np.max(np.abs(forces)) > max_force:
+            continue
+        selected_configs.append(config)
 
-    selected_configs = [
-        a for a in all_configs if np.max(np.abs(a.arrays["DFT_forces"])) <= max_force
-    ]
     for config in selected_configs:
-        config.arrays = {
-            (
-                f"{mlip_prefix}_forces"
-                if key == f"last_op__{keys.get(calc)}_forces"
-                else key
-            ): config.arrays.get(key)
-            for key in array_keys
-        }
-        config.info = {
-            (
-                f"{mlip_prefix}_energy"
-                if key == f"last_op__{keys.get(calc)}_energy"
-                else key
-            ): config.info.get(key)
-            for key in info_keys
-        }
+        if op_forces_key in config.arrays:
+            config.arrays[f"{clean_prefix}_forces"] = config.arrays[op_forces_key]
+            del config.arrays[op_forces_key]
+        if op_energy_key in config.info:
+            config.info[f"{clean_prefix}_energy"] = config.info[op_energy_key]
+            del config.info[op_energy_key]
 
-    write(out_file, selected_configs)
+    if out_file is not None:
+        write(out_file, selected_configs)
+
+    return selected_configs
 
 
 def _rename_configset_tags(at, old_tag, new_tag, tag_type="info") -> Atoms:

@@ -14,13 +14,22 @@ from mlipflow.core.neb_pairing import create_neb_pairs
 from mlipflow.core.single_point import run_chunked_qe_sp, run_single_point
 from mlipflow.data import clean_up, setup_logging
 from mlipflow.data.labeller import relabel_configs
-from mlipflow.data.processing import clean_configset_data, update_configset_tag
+from mlipflow.data.processing import (
+    check_maxforce_and_cleanarrays,
+    clean_configset_data,
+    update_configset_tag,
+)
 from mlipflow.data.selection import (
     select_by_uncertainty,
     split_configset_by_force_agreement,
 )
 from mlipflow.data.selector import ConfigurationSelector
-from mlipflow.strategies.structure_generators import MDGen, NEBGen, StructureGenStrategy
+from mlipflow.strategies.structure_generators import (
+    MDGen,
+    NEBGen,
+    OPTGen,
+    StructureGenStrategy,
+)
 from mlipflow.utils.path_factory import resolve_step_path
 
 if TYPE_CHECKING:
@@ -145,6 +154,51 @@ def switch_to_neb_generation(state: EnsembleState) -> EnsembleState:
     calc_kwargs["mlip_gen"] = calc_kwargs.get("neb__mlip_gen", {})
     neb_params = calc_kwargs.get("neb__structure_gen_params", {})
     new_strategy = NEBGen(params=neb_params)
+
+    return {
+        **state,
+        "structure_gen_strategy": new_strategy,
+        "calculation_kwargs": calc_kwargs,
+    }
+
+
+def switch_to_pathmd_generation(state: EnsembleState) -> EnsembleState:
+    """
+    Switch the active structure generation strategy back to MDGen
+    to handle downstream path-sampling MD.
+    """
+    logger.info("Switching state strategy from OPT back to MD for path-sampling")
+
+    calc_kwargs = state.get("calculation_kwargs", {})
+    calc_kwargs["mlip_gen"] = calc_kwargs.get("neb__mlip_gen", {})
+    sampling_kwargs = calc_kwargs.get("initial_sampling", {})
+    neb_md_params = sampling_kwargs.get("neb__structure_gen_params", {})
+    uncertainty_thrs = calc_kwargs.get("fps_selection", {}).get("uncertainty_thrs", 12)
+
+    new_strategy = MDGen(
+        uncertainty_thrs=uncertainty_thrs, n_failed_steps=10, params=neb_md_params
+    )
+
+    return {
+        **state,
+        "structure_gen_strategy": new_strategy,
+        "calculation_kwargs": calc_kwargs,
+    }
+
+
+def switch_to_opt_generation(state: EnsembleState) -> EnsembleState:
+    """
+    Switch the active structure generation strategy from MDGen to OPTGen.
+    """
+    logger.info("Switching state strategy from MD to OPT geometry optimization")
+
+    calc_kwargs = state.get("calculation_kwargs", {})
+    calc_kwargs["mlip_gen"] = calc_kwargs.get("opt__mlip_gen", {})
+    opt_params = calc_kwargs.get(
+        "opt__structure_gen_params", {"fmax": 0.005, "steps": 250}
+    )
+    traj_subselect = calc_kwargs.get("opt__traj_subselect", "last")
+    new_strategy = OPTGen(traj_subselect=traj_subselect, params=opt_params)
 
     return {
         **state,
@@ -1006,13 +1060,25 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
     gamma = rematch_kwargs.get("gamma", 0.1)
     zeta = rematch_kwargs.get("zeta", 1)
     block_size = rematch_kwargs.get("block_size", 512)
+    max_force = rematch_kwargs.get("max_force", 15.0)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     current_files = state["configs"]
 
-    # Extract MACE descriptors
-    mlip_calc = MACECalculator(state["mlip_strategy"].model_file, device=device)
+    # Clean and standardise configurations (e.g. rename last_op__* to MLIP keys)
+    mlip = state["mlip_strategy"]
+    calc_type = getattr(state.get("structure_gen_strategy"), "calc_prefix", "opt")
     atoms_list = list(ConfigSet(current_files))
+    atoms_list = check_maxforce_and_cleanarrays(
+        in_file=atoms_list,
+        out_file=None,
+        mlip_prefix=mlip.mlip_prefix,
+        calc=calc_type,
+        max_force=max_force,
+    )
+
+    # Extract MACE descriptors
+    mlip_calc = MACECalculator(mlip.model_file, device=device)
     num_structures = len(atoms_list)
 
     if num_structures < 2:
@@ -1041,8 +1107,22 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
         basin_indices = torch.where(sim_mat[i] > similarity_threshold)[0].tolist()
 
         # Retain the configuration with the lowest potential energy
+        prefix = getattr(state["mlip_strategy"], "mlip_prefix", "MACE_")
+        if not isinstance(prefix, str):
+            prefix = "MACE_"
+
+        def _get_energy(atoms, prefix) -> float:
+            for key in [f"{prefix}energy", f"{prefix}_energy", "energy", "DFT_energy"]:
+                if key in atoms.info:
+                    try:
+                        return float(atoms.info[key])
+                    except (ValueError, TypeError):
+                        pass
+            return None
+            # return atoms.get_potential_energy()
+
         best_idx = min(
-            basin_indices, key=lambda idx: atoms_list[idx].get_potential_energy()
+            basin_indices, key=lambda idx: _get_energy(atoms_list[idx], prefix)
         )
         collapsed_configs.append(atoms_list[best_idx])
 

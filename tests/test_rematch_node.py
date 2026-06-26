@@ -160,3 +160,57 @@ class TestBasinCollapseGrouping:
         collapsed = final_configset_call[0][0]
         assert len(collapsed) == 1
         assert collapsed[0].get_potential_energy() == 1.0
+
+    @patch("mlipflow.graphflow.nodes.OutputSpec")
+    @patch("mlipflow.data.rematch.compute_rematch_matrix")
+    @patch("mlipflow.data.gmm.compute_descriptors")
+    @patch("mace.calculators.MACECalculator")
+    @patch("mlipflow.graphflow.nodes.ConfigSet")
+    @patch("mlipflow.graphflow.nodes.resolve_step_path")
+    def test_basin_collapse_keeps_lowest_energy_info_dict(
+        self,
+        mock_resolve,
+        mock_configset,
+        mock_mace_calc,
+        mock_compute_desc,
+        mock_rematch,
+        mock_output_spec,
+    ):
+        """Among duplicate configurations without calculators, the one with the lowest energy in info dict is retained."""
+        mock_resolve.return_value = "collapsed_basin_configs.xyz"
+
+        atoms_list = []
+        energies = [5.0, 1.0, 3.0]  # Index 1 has lowest energy
+        for e in energies:
+            at = Atoms("H", positions=[[0, 0, 0]])
+            # No calculator is attached
+            at.info["MACE_energy"] = e
+            atoms_list.append(at)
+
+        mock_configset.return_value = atoms_list
+
+        X_padded = torch.randn(3, 2, 6)
+        mock_compute_desc.return_value = (X_padded, torch.randn(6, 6))
+
+        # All three are in the same basin
+        sim = torch.ones(3, 3)
+        mock_rematch.return_value = sim
+
+        mock_writer = MagicMock()
+        mock_output_spec.return_value = mock_writer
+
+        mlip_mock = MagicMock()
+        mlip_mock.model_file = "dummy.model"
+        mlip_mock.mlip_prefix = "MACE_"
+
+        state = EnsembleState(configs=["input.xyz"], mlip_strategy=mlip_mock)
+
+        result = run_rematch_basin_collapse(state)
+
+        assert result["step_counter"] == 2
+
+        # Should collapse to 1 config — the one with MACE_energy 1.0 (index 1)
+        final_configset_call = mock_configset.call_args_list[-1]
+        collapsed = final_configset_call[0][0]
+        assert len(collapsed) == 1
+        assert collapsed[0].info["MACE_energy"] == 1.0
