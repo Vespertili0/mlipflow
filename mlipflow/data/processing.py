@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -10,8 +11,13 @@ from ase.io import read, write
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.map import map as wfl_map
 
+from mlipflow.data import setup_logging
+
 if TYPE_CHECKING:
     from ase import Atoms
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 
 def update_training_data(
@@ -32,7 +38,9 @@ def check_maxforce_and_cleanarrays(
     calc: str = "opt",
     max_force: float = 15.0,
 ) -> list[Atoms]:
-    """Remove structures with forces exceeding threshold and rename energy/force keys."""
+    """Remove structures with forces exceeding threshold and rename energy/force keys.
+    Also acts as a strict filter to drop configurations missing energy data.
+    """
     if isinstance(in_file, (str, Path)):
         configs = read(str(in_file), ":")
     elif isinstance(in_file, ConfigSet):
@@ -47,6 +55,8 @@ def check_maxforce_and_cleanarrays(
     clean_prefix = mlip_prefix.rstrip("_")
 
     selected_configs = []
+    dropped_missing_energy = 0  # Counter for missing energies
+
     for config in configs:
         forces = None
         if "DFT_forces" in config.arrays:
@@ -60,8 +70,33 @@ def check_maxforce_and_cleanarrays(
 
         if forces is not None and np.max(np.abs(forces)) > max_force:
             continue
+
+        # Strict Energy Check
+        energy = None
+        for key in [
+            "DFT_energy",
+            op_energy_key,
+            f"{clean_prefix}_energy",
+            f"{mlip_prefix}energy",
+            "energy",
+        ]:
+            if key in config.info:
+                energy = config.info[key]
+                break
+
+        if energy is None:
+            dropped_missing_energy += 1
+            continue
+
         selected_configs.append(config)
 
+    # Clean batched logging
+    if dropped_missing_energy > 0:
+        logger.info(
+            f"Dropped {dropped_missing_energy} configurations due to missing energy data."
+        )
+
+    # Rename keys for downstream consistency
     for config in selected_configs:
         if op_forces_key in config.arrays:
             config.arrays[f"{clean_prefix}_forces"] = config.arrays[op_forces_key]

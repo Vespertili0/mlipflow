@@ -1061,6 +1061,7 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
     zeta = rematch_kwargs.get("zeta", 1)
     block_size = rematch_kwargs.get("block_size", 512)
     max_force = rematch_kwargs.get("max_force", 15.0)
+    atom_slice = rematch_kwargs.get("atom_slice", None)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     current_files = state["configs"]
@@ -1086,7 +1087,7 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
         return {**state}
 
     X_padded, _X_flat = compute_descriptors(
-        atoms_list, mlip_calc, device, torch.float32
+        atoms_list, mlip_calc, device, torch.float32, atom_indices=atom_slice
     )
     mask = torch.any(X_padded != 0, dim=-1)
 
@@ -1112,14 +1113,21 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
             prefix = "MACE_"
 
         def _get_energy(atoms, prefix) -> float:
-            for key in [f"{prefix}energy", f"{prefix}_energy", "energy", "DFT_energy"]:
+            for key in [
+                f"{prefix}energy",
+                f"{prefix}_energy",
+                "energy",
+                "DFT_energy",
+                "last_op__md_energy",
+                "last_op__optimize_energy",
+            ]:
                 if key in atoms.info:
                     try:
                         return float(atoms.info[key])
                     except (ValueError, TypeError):
                         pass
-            return None
-            # return atoms.get_potential_energy()
+            # Defensive fallback to prevent TypeError during min() calculation
+            return float("inf")
 
         best_idx = min(
             basin_indices, key=lambda idx: _get_energy(atoms_list[idx], prefix)
