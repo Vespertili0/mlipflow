@@ -1012,21 +1012,23 @@ def run_topology_relabel(state: EnsembleState) -> EnsembleState:
 
 
 def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
-    """
-    Collapse redundant PES minima using a ReMATCH structural similarity kernel.
+    """Collapse redundant PES minima via species-chunked Louvain clustering.
 
-    Configurations whose pairwise ReMATCH similarity exceeds a threshold are
-    grouped into basins.  Within each basin, only the configuration with the
-    lowest MLIP potential energy is retained.  The surviving representatives
-    are written to disk and the state is updated for downstream NEB pairing.
+    Configurations are cleaned, bucketed by species, and clustered using a
+    topo-energetic network graph with Louvain community detection.  Within
+    each basin the lowest-energy representative is retained.  Survivors
+    are deterministically sorted, written to disk, and the state is
+    updated for downstream NEB pairing.
 
     Parameters
     ----------
     state : EnsembleState
         Current workflow state.  Must contain ``"configs"`` and
-        ``"mlip_strategy"`` keys.  Optional ``"calculation_kwargs"["rematch"]``
-        dict may supply ``similarity_threshold``, ``gamma``, ``zeta``, and
-        ``block_size``.
+        ``"mlip_strategy"`` keys.  Optional
+        ``"calculation_kwargs"["rematch"]`` dict may supply
+        ``energy_tol``, ``network_threshold``, ``resolution``,
+        ``gamma``, ``zeta``, ``block_size``, ``max_force``, and
+        ``atom_slice``.
 
     Returns
     -------
@@ -1043,8 +1045,7 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
     import torch
     from mace.calculators import MACECalculator
 
-    from mlipflow.data.gmm import compute_descriptors
-    from mlipflow.data.rematch import compute_rematch_matrix
+    from mlipflow.data.rematch import species_chunked_louvain_clustering
 
     logger.info("Executing ReMATCH structural basin collapse.")
 
@@ -1056,7 +1057,9 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
 
     # Read parameters from state
     rematch_kwargs = state.get("calculation_kwargs", {}).get("rematch", {})
-    similarity_threshold = rematch_kwargs.get("similarity_threshold", 0.99)
+    energy_tol = rematch_kwargs.get("energy_tol", 0.05)
+    network_threshold = rematch_kwargs.get("network_threshold", 0.90)
+    resolution = rematch_kwargs.get("resolution", 1.0)
     gamma = rematch_kwargs.get("gamma", 0.1)
     zeta = rematch_kwargs.get("zeta", 1)
     block_size = rematch_kwargs.get("block_size", 512)
@@ -1066,7 +1069,7 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     current_files = state["configs"]
 
-    # Clean and standardise configurations (e.g. rename last_op__* to MLIP keys)
+    # Clean and standardise configurations
     mlip = state["mlip_strategy"]
     calc_type = getattr(state.get("structure_gen_strategy"), "calc_prefix", "opt")
     atoms_list = list(ConfigSet(current_files))
@@ -1078,64 +1081,32 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
         max_force=max_force,
     )
 
-    # Extract MACE descriptors
-    mlip_calc = MACECalculator(mlip.model_file, device=device)
     num_structures = len(atoms_list)
 
     if num_structures < 2:
         logger.info("Fewer than 2 configurations; skipping basin collapse.")
         return {**state}
 
-    X_padded, _X_flat = compute_descriptors(
-        atoms_list, mlip_calc, device, torch.float32, atom_indices=atom_slice
+    # Resolve MLIP prefix
+    prefix = getattr(mlip, "mlip_prefix", "MACE_")
+    if not isinstance(prefix, str):
+        prefix = "MACE_"
+
+    # Lazy-load calculator and delegate to core clustering
+    mlip_calc = MACECalculator(mlip.model_file, device=device)
+    collapsed_configs = species_chunked_louvain_clustering(
+        atoms_list,
+        mlip_calc,
+        prefix,
+        device,
+        energy_tol=energy_tol,
+        network_threshold=network_threshold,
+        resolution=resolution,
+        gamma=gamma,
+        zeta=zeta,
+        block_size=block_size,
+        atom_slice=atom_slice,
     )
-    mask = torch.any(X_padded != 0, dim=-1)
-
-    # Compute GPU-accelerated structural matching matrix
-    with torch.no_grad():
-        sim_mat = compute_rematch_matrix(
-            X_padded, mask, gamma=gamma, zeta=zeta, block_size=block_size
-        )
-
-    # Group matched configurations using connected-component adjacency
-    visited = [False] * num_structures
-    collapsed_configs = []
-
-    for i in range(num_structures):
-        if visited[i]:
-            continue
-
-        basin_indices = torch.where(sim_mat[i] > similarity_threshold)[0].tolist()
-
-        # Retain the configuration with the lowest potential energy
-        prefix = getattr(state["mlip_strategy"], "mlip_prefix", "MACE_")
-        if not isinstance(prefix, str):
-            prefix = "MACE_"
-
-        def _get_energy(atoms, prefix) -> float:
-            for key in [
-                f"{prefix}energy",
-                f"{prefix}_energy",
-                "energy",
-                "DFT_energy",
-                "last_op__md_energy",
-                "last_op__optimize_energy",
-            ]:
-                if key in atoms.info:
-                    try:
-                        return float(atoms.info[key])
-                    except (ValueError, TypeError):
-                        pass
-            # Defensive fallback to prevent TypeError during min() calculation
-            return float("inf")
-
-        best_idx = min(
-            basin_indices, key=lambda idx: _get_energy(atoms_list[idx], prefix)
-        )
-        collapsed_configs.append(atoms_list[best_idx])
-
-        for idx in basin_indices:
-            visited[idx] = True
 
     step_counter = state.get("step_counter", 1)
     current_iter = state.get("iteration", 0)

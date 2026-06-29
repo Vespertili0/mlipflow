@@ -239,3 +239,222 @@ def _compute_rematch_matrix_impl(
     normalisation = torch.outer(v_sqrt, v_sqrt)
 
     return raw / (normalisation + eps)
+
+
+def _get_energy(atoms, prefix: str) -> float:
+    """Extract total energy from an ``Atoms`` object.
+
+    The function walks a priority-ordered list of ``atoms.info`` keys,
+    returning the first valid float it finds.  Returns ``inf`` as a
+    defensive fallback so that ``min()`` comparisons never raise.
+
+    Parameters
+    ----------
+    atoms : ase.Atoms
+        Configuration to inspect.
+    prefix : str
+        MLIP prefix string (e.g. ``"MACE_"``).
+
+    Returns
+    -------
+    float
+        Total energy in eV, or ``inf`` if none found.
+    """
+    for key in [
+        f"{prefix}energy",
+        f"{prefix}_energy",
+        "energy",
+        "DFT_energy",
+        "last_op__md_energy",
+        "last_op__optimize_energy",
+    ]:
+        if key in atoms.info:
+            try:
+                return float(atoms.info[key])
+            except (ValueError, TypeError):
+                pass
+    return float("inf")
+
+
+def _get_sort_key(atoms, prefix: str) -> tuple:
+    """Build a deterministic sort key for an ``Atoms`` object.
+
+    The key is a tuple ``(energy, positions_flat, cell_flat)`` so that
+    survivors are ordered first by energy, then by geometry for
+    tie-breaking.  This guarantees output ordering is independent of
+    input ordering.
+
+    Parameters
+    ----------
+    atoms : ase.Atoms
+        Configuration to build the key for.
+    prefix : str
+        MLIP prefix string (e.g. ``"MACE_"``).
+
+    Returns
+    -------
+    tuple
+        ``(energy, positions_tuple, cell_tuple)``.
+    """
+    energy = _get_energy(atoms, prefix)
+    pos_flat = tuple(atoms.get_positions().ravel().tolist())
+    cell_flat = tuple(atoms.get_cell().array.ravel().tolist())
+    return (energy, pos_flat, cell_flat)
+
+
+def species_chunked_louvain_clustering(
+    atoms_list: list,
+    mlip_calc,
+    prefix: str,
+    device: str,
+    *,
+    energy_tol: float = 0.05,
+    network_threshold: float = 0.90,
+    resolution: float = 1.0,
+    gamma: float = 0.1,
+    zeta: int = 1,
+    block_size: int = 512,
+    atom_slice=None,
+) -> list:
+    """Cluster configurations into PES basins and return basin representatives.
+
+    Configurations are first bucketed by species.  Within each species
+    bucket that contains at least two structures, a sparse topo-energetic
+    adjacency graph is constructed and partitioned using the Louvain
+    algorithm.  Each community is collapsed to its lowest-energy member.
+
+    Parameters
+    ----------
+    atoms_list : list[ase.Atoms]
+        Pre-cleaned configurations.  Each must carry a total energy in its
+        ``info`` dict and ideally a ``"species"`` label.
+    mlip_calc : mace.calculators.MACECalculator
+        Initialised MACE calculator for descriptor extraction.
+    prefix : str
+        MLIP info-key prefix (e.g. ``"MACE_"``).
+    device : str
+        Torch device string (``"cpu"`` or ``"cuda"``).
+    energy_tol : float, optional
+        Thermal energy scale :math:`\\tau_E` in eV.  Pairs with
+        :math:`|\\Delta E| > \\tau_E` are pruned (Stage 1) and surviving
+        edges decay exponentially with this scale (Stage 2).
+        Default ``0.05``.
+    network_threshold : float, optional
+        Structural similarity lower-bound :math:`\\tau_S`.  ReMATCH
+        scores below this value are pruned.  Default ``0.90``.
+    resolution : float, optional
+        Louvain resolution parameter :math:`\\gamma`.  Values :math:`\\ge
+        1.0` penalise large communities, protecting shallow micro-basins.
+        Default ``1.0``.
+    gamma : float, optional
+        ReMATCH entropic regularisation strength.  Default ``0.1``.
+    zeta : int, optional
+        ReMATCH sharpness power.  Default ``1``.
+    block_size : int, optional
+        Tile width for blockwise ReMATCH computation.  Default ``512``.
+    atom_slice : slice | list[int] | None, optional
+        Atom index filter for descriptor computation.  Default ``None``.
+
+    Returns
+    -------
+    list[ase.Atoms]
+        Deterministically sorted list of basin representative
+        configurations.
+    """
+    import collections
+
+    import networkx as nx
+    import numpy as np
+
+    from mlipflow.data.gmm import compute_descriptors
+
+    # ── 1. Bucket by species ──────────────────────────────────────────
+    species_buckets: dict[str, list] = collections.defaultdict(list)
+    for atoms in atoms_list:
+        species = atoms.info.get("species", "unknown")
+        species_buckets[species].append(atoms)
+
+    logger.info(
+        "Species bucketing: %d species from %d configurations.",
+        len(species_buckets),
+        len(atoms_list),
+    )
+
+    survivors: list = []
+
+    # ── 2. Process each bucket ────────────────────────────────────────
+    for species, bucket in species_buckets.items():
+        if len(bucket) < 2:
+            logger.info(
+                "Species '%s': %d config(s) — bypassing clustering.",
+                species,
+                len(bucket),
+            )
+            survivors.extend(bucket)
+            continue
+
+        logger.info("Species '%s': clustering %d configurations.", species, len(bucket))
+
+        # ── 2a. Descriptors & ReMATCH ────────────────────────────────
+        X_padded, _X_flat = compute_descriptors(
+            bucket, mlip_calc, device, torch.float32, atom_indices=atom_slice
+        )
+        mask = torch.any(X_padded != 0, dim=-1)
+
+        with torch.no_grad():
+            sim_mat = compute_rematch_matrix(
+                X_padded, mask, gamma=gamma, zeta=zeta, block_size=block_size
+            )
+
+        # Move to CPU/numpy for networkx
+        S = sim_mat.cpu().numpy()
+        n = len(bucket)
+
+        # ── 2b. Energy difference matrix ──────────────────────────────
+        energies = np.array([_get_energy(at, prefix) for at in bucket])
+        delta_E = np.abs(energies[:, None] - energies[None, :])
+
+        # ── 2c. Two-stage topo-energetic edge weighting ───────────────
+        #  Stage 1: Threshold gate (pruning)
+        gate = (network_threshold <= S) & (delta_E <= energy_tol)
+        np.fill_diagonal(gate, False)  # no self-loops
+
+        #  Stage 2: Continuous weight function on surviving edges
+        W = np.zeros((n, n), dtype=np.float64)
+        surviving = gate.nonzero()
+        if surviving[0].size > 0:
+            s_vals = S[surviving]
+            de_vals = delta_E[surviving]
+            structural_weight = (s_vals - network_threshold) / (1.0 - network_threshold)
+            thermal_decay = np.exp(-de_vals / energy_tol)
+            W[surviving] = structural_weight * thermal_decay
+
+        # ── 2d. Graph construction & Louvain ──────────────────────────
+        G = nx.from_numpy_array(W)
+        communities = nx.community.louvain_communities(
+            G, weight="weight", resolution=resolution, seed=42
+        )
+
+        logger.info(
+            "Species '%s': Louvain found %d communities from %d configs.",
+            species,
+            len(communities),
+            n,
+        )
+
+        # ── 2e. Representative selection ──────────────────────────────
+        for community in communities:
+            indices = sorted(community)
+            best_idx = min(indices, key=lambda idx: _get_sort_key(bucket[idx], prefix))
+            survivors.append(bucket[best_idx])
+
+    # ── 3. Deterministic sort ─────────────────────────────────────────
+    survivors.sort(key=lambda at: _get_sort_key(at, prefix))
+
+    logger.info(
+        "Louvain basin collapse complete: %d -> %d survivors.",
+        len(atoms_list),
+        len(survivors),
+    )
+
+    return survivors
