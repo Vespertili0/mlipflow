@@ -100,6 +100,14 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
                 "sigma_reaction": 10,
                 "threshold_reaction": 0.85,
             },
+            "rematch": {
+                "energy_tol": 0.05,
+                "network_threshold": 0.95,
+                "resolution": 1.0,
+                "gamma": 0.1,
+                "zeta": 1,
+                "block_size": 512,
+            },
         }
 
         state = EnsembleState(

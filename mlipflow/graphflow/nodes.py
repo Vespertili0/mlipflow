@@ -1058,7 +1058,7 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
     # Read parameters from state
     rematch_kwargs = state.get("calculation_kwargs", {}).get("rematch", {})
     energy_tol = rematch_kwargs.get("energy_tol", 0.05)
-    network_threshold = rematch_kwargs.get("network_threshold", 0.90)
+    network_threshold = rematch_kwargs.get("network_threshold", 0.95)
     resolution = rematch_kwargs.get("resolution", 1.0)
     gamma = rematch_kwargs.get("gamma", 0.1)
     zeta = rematch_kwargs.get("zeta", 1)
