@@ -82,6 +82,11 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
                     "n_pathways": 1,
                     "n_images": 3,
                 },
+                "neb__structure_gen_params": {
+                    "steps": 5,
+                    "dt": 1.0,
+                    "temperature": 300.0,
+                },
             },
             "mlip_gen": {
                 "dispersion": False
