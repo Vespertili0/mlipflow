@@ -14,13 +14,23 @@ from mlipflow.core.neb_pairing import create_neb_pairs
 from mlipflow.core.single_point import run_chunked_qe_sp, run_single_point
 from mlipflow.data import clean_up, setup_logging
 from mlipflow.data.labeller import relabel_configs
-from mlipflow.data.processing import clean_configset_data, update_configset_tag
+from mlipflow.data.processing import (
+    check_maxforce_and_cleanarrays,
+    clean_configset_data,
+    update_configset_tag,
+)
 from mlipflow.data.selection import (
     select_by_uncertainty,
     split_configset_by_force_agreement,
 )
 from mlipflow.data.selector import ConfigurationSelector
-from mlipflow.strategies.structure_generators import MDGen, NEBGen, StructureGenStrategy
+from mlipflow.strategies.structure_generators import (
+    MDGen,
+    NEBGen,
+    OPTGen,
+    StructureGenStrategy,
+)
+from mlipflow.utils.path_factory import resolve_step_path
 
 if TYPE_CHECKING:
     from ase import Atoms
@@ -68,6 +78,8 @@ class EnsembleState(TypedDict):
 
     configs: list[str]
     outfile: NotRequired[list[str]]
+    iteration: NotRequired[int]
+    step_counter: NotRequired[int]
     qchem_strategy: NotRequired[QChemStrategy]
     mlip_strategy: NotRequired[MLIPStrategy]
     structure_gen_strategy: NotRequired[StructureGenStrategy]
@@ -116,11 +128,22 @@ def merge_configs(state: EnsembleState) -> EnsembleState:
         logger.error("No original configurations provided in state")
         raise ValueError("No original configurations provided in state")
 
+    step_counter = state.get("step_counter", 1)
+    current_iter = state.get("iteration", 0)
+
+    outfile_path = resolve_step_path(
+        step_suffix="merged", iteration=current_iter, step_counter=step_counter
+    )
+
+    if Path(outfile_path).exists() and Path(outfile_path).stat().st_size > 0:
+        logger.info("Valid merged configs output detected on disk. Skipping execution.")
+        return {**state, "configs": [outfile_path], "step_counter": step_counter + 1}
+
     merged = ConfigSet(state["original_configs"]) + ConfigSet(state["configs"])
     _log_config_counts(merged, msg="after merging")
-    OutputSpec("merged.xyz").write(merged)
+    OutputSpec(outfile_path).write(merged)
 
-    return {**state, "configs": ["merged.xyz"]}
+    return {**state, "configs": [outfile_path], "step_counter": step_counter + 1}
 
 
 def switch_to_neb_generation(state: EnsembleState) -> EnsembleState:
@@ -139,18 +162,68 @@ def switch_to_neb_generation(state: EnsembleState) -> EnsembleState:
     }
 
 
+def switch_to_pathmd_generation(state: EnsembleState) -> EnsembleState:
+    """
+    Switch the active structure generation strategy back to MDGen
+    to handle downstream path-sampling MD.
+    """
+    logger.info("Switching state strategy from OPT back to MD for path-sampling")
+
+    calc_kwargs = state.get("calculation_kwargs", {})
+    calc_kwargs["mlip_gen"] = calc_kwargs.get("neb__mlip_gen", {})
+    sampling_kwargs = calc_kwargs.get("initial_sampling", {})
+    neb_md_params = sampling_kwargs.get("neb__structure_gen_params", {})
+    uncertainty_thrs = calc_kwargs.get("fps_selection", {}).get("uncertainty_thrs", 12)
+
+    new_strategy = MDGen(
+        uncertainty_thrs=uncertainty_thrs, n_failed_steps=10, params=neb_md_params
+    )
+
+    return {
+        **state,
+        "structure_gen_strategy": new_strategy,
+        "calculation_kwargs": calc_kwargs,
+    }
+
+
+def switch_to_opt_generation(state: EnsembleState) -> EnsembleState:
+    """
+    Switch the active structure generation strategy from MDGen to OPTGen.
+    """
+    logger.info("Switching state strategy from MD to OPT geometry optimization")
+
+    calc_kwargs = state.get("calculation_kwargs", {})
+    calc_kwargs["mlip_gen"] = calc_kwargs.get("opt__mlip_gen", {})
+    opt_params = calc_kwargs.get(
+        "opt__structure_gen_params", {"fmax": 0.005, "steps": 250}
+    )
+    traj_subselect = calc_kwargs.get("opt__traj_subselect", "last")
+    new_strategy = OPTGen(traj_subselect=traj_subselect, params=opt_params)
+
+    return {
+        **state,
+        "structure_gen_strategy": new_strategy,
+        "calculation_kwargs": calc_kwargs,
+    }
+
+
 def run_dft_sp(state: EnsembleState) -> EnsembleState:
     """Run DFT single-point calculations on configurations.
 
-    Args:
-        state (EnsembleState): Current workflow state
+    Parameters
+    ----------
+    state : EnsembleState
+        Current workflow state.
 
-    Returns:
-        EnsembleState: Updated workflow state
+    Returns
+    -------
+    EnsembleState
+        Updated workflow state.
 
-    Raises:
-        KeyError: If required state keys are missing
-        ValueError: If configs list is empty
+    Raises
+    ------
+    ValueError
+        If configs list is empty.
     """
     logger.info("Running DFT single-point calculations")
 
@@ -159,7 +232,36 @@ def run_dft_sp(state: EnsembleState) -> EnsembleState:
         raise ValueError("No configurations provided in state")
 
     configs = state["configs"]
-    outfile = [xyz.replace(".xyz", ".dft.xyz") for xyz in configs]
+    current_iter = state.get("iteration", 0)
+    step_counter = state.get("step_counter", 1)
+
+    if len(configs) == 1:
+        outfile = [
+            resolve_step_path(
+                step_suffix="dft_sp", iteration=current_iter, step_counter=step_counter
+            )
+        ]
+    else:
+        outfile = [
+            resolve_step_path(
+                step_suffix=f"dft_sp_{i}",
+                iteration=current_iter,
+                step_counter=step_counter,
+            )
+            for i in range(len(configs))
+        ]
+
+    # Idempotency guard: skip execution if outputs already exist
+    if all(
+        Path(out_f).exists() and Path(out_f).stat().st_size > 0 for out_f in outfile
+    ):
+        logger.info("Valid DFT-SP outputs detected on disk. Skipping execution.")
+        return {
+            **state,
+            "configs": outfile,
+            "outfile": None,
+            "step_counter": step_counter + 1,
+        }
 
     dft_kwargs = state.get("calculation_kwargs", {}).get("dft_scf", {})
 
@@ -182,21 +284,31 @@ def run_dft_sp(state: EnsembleState) -> EnsembleState:
         clean_up()
         _log_config_counts(ConfigSet(outfile), msg="after DFT-SP")
 
-    return {**state, "configs": outfile, "outfile": None}
+    return {
+        **state,
+        "configs": outfile,
+        "outfile": None,
+        "step_counter": step_counter + 1,
+    }
 
 
 def run_dft_sp_chunked(state: EnsembleState) -> EnsembleState:
     """Run chunked DFT single-point calculations on configurations.
 
-    Args:
-        state (EnsembleState): Current workflow state
+    Parameters
+    ----------
+    state : EnsembleState
+        Current workflow state.
 
-    Returns:
-        EnsembleState: Updated workflow state
+    Returns
+    -------
+    EnsembleState
+        Updated workflow state.
 
-    Raises:
-        KeyError: If required state keys are missing
-        ValueError: If configs list is empty
+    Raises
+    ------
+    ValueError
+        If configs list is empty.
     """
     logger.info("Running chunked DFT single-point calculations")
 
@@ -205,13 +317,41 @@ def run_dft_sp_chunked(state: EnsembleState) -> EnsembleState:
         raise ValueError("No configurations provided in state")
 
     configs = state["configs"]
-    outfile = [xyz.replace(".xyz", ".dft.xyz") for xyz in configs]
+    current_iter = state.get("iteration", 0)
+    step_counter = state.get("step_counter", 1)
+
+    if len(configs) == 1:
+        outfile = [
+            resolve_step_path(
+                step_suffix="dft_sp", iteration=current_iter, step_counter=step_counter
+            )
+        ]
+    else:
+        outfile = [
+            resolve_step_path(
+                step_suffix=f"dft_sp_{i}",
+                iteration=current_iter,
+                step_counter=step_counter,
+            )
+            for i in range(len(configs))
+        ]
+
+    # Idempotency guard: skip execution if outputs already exist
+    if all(
+        Path(out_f).exists() and Path(out_f).stat().st_size > 0 for out_f in outfile
+    ):
+        logger.info(
+            "Valid chunked DFT-SP outputs detected on disk. Skipping execution."
+        )
+        return {
+            **state,
+            "configs": outfile,
+            "outfile": None,
+            "step_counter": step_counter + 1,
+        }
 
     # Get DFT kwargs from state or use defaults
     dft_kwargs = state.get("calculation_kwargs", {}).get("dft_scf", {})
-
-    # Default parameters need to be handled carefully for run_chunked_qe_sp
-    # It seems run_chunked_qe_sp takes explicit args
 
     try:
         run_chunked_qe_sp(
@@ -237,19 +377,33 @@ def run_dft_sp_chunked(state: EnsembleState) -> EnsembleState:
     finally:
         _log_config_counts(ConfigSet(outfile), msg="after chunked DFT-SP")
 
-    return {**state, "configs": outfile, "outfile": None}
+    return {
+        **state,
+        "configs": outfile,
+        "outfile": None,
+        "step_counter": step_counter + 1,
+    }
 
 
 def run_mlip_sp(state: EnsembleState) -> EnsembleState:
     """Run MLIP single-point calculations on configurations.
 
-    Args:
-        state (EnsembleState): Current workflow state
-    Returns:
-        EnsembleState: Updated workflow state
-    Raises:
-        KeyError: If required state keys are missing
-        ValueError: If configs list is empty
+    Parameters
+    ----------
+    state : EnsembleState
+        Current workflow state.
+
+    Returns
+    -------
+    EnsembleState
+        Updated workflow state.
+
+    Raises
+    ------
+    KeyError
+        If ``mlip_strategy`` is missing from state.
+    ValueError
+        If configs list is empty.
     """
     logger.info("Running MLIP-SP calculations")
 
@@ -263,7 +417,36 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
 
     mlip = state["mlip_strategy"]
     configs = state["configs"]
-    outfile = [xyz.replace(".xyz", ".mace.xyz") for xyz in configs]
+    current_iter = state.get("iteration", 0)
+    step_counter = state.get("step_counter", 1)
+
+    if len(configs) == 1:
+        outfile = [
+            resolve_step_path(
+                step_suffix="mace_sp", iteration=current_iter, step_counter=step_counter
+            )
+        ]
+    else:
+        outfile = [
+            resolve_step_path(
+                step_suffix=f"mace_sp_{i}",
+                iteration=current_iter,
+                step_counter=step_counter,
+            )
+            for i in range(len(configs))
+        ]
+
+    # Idempotency guard: skip execution if outputs already exist
+    if all(
+        Path(out_f).exists() and Path(out_f).stat().st_size > 0 for out_f in outfile
+    ):
+        logger.info("Valid MLIP-SP outputs detected on disk. Skipping execution.")
+        return {
+            **state,
+            "configs": outfile,
+            "outfile": None,
+            "step_counter": step_counter + 1,
+        }
 
     # Get MLIP kwargs from state
     mlip_kwargs = state.get("calculation_kwargs", {}).get("mlip_sp", {}).copy()
@@ -294,7 +477,12 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
         clean_up()
         _log_config_counts(ConfigSet(outfile), msg="after MLIP-SP")
 
-    return {**state, "configs": outfile, "outfile": None}
+    return {
+        **state,
+        "configs": outfile,
+        "outfile": None,
+        "step_counter": step_counter + 1,
+    }
 
 
 def assess_n_select(state: EnsembleState) -> EnsembleState:
@@ -302,9 +490,36 @@ def assess_n_select(state: EnsembleState) -> EnsembleState:
     side_suffix = "test"
 
     configs = state["configs"]
+    step_counter = state.get("step_counter", 1)
+    current_iter = state.get("iteration", 0)
+
+    train_file = resolve_step_path(
+        step_suffix="train_dft", iteration=current_iter, step_counter=step_counter
+    )
+    test_file = resolve_step_path(
+        step_suffix="test_dft", iteration=current_iter, step_counter=step_counter
+    )
+
+    out_files = {main_suffix: train_file, side_suffix: test_file}
+
+    # Idempotency guard: skip execution if outputs already exist
+    if (
+        Path(train_file).exists()
+        and Path(train_file).stat().st_size > 0
+        and Path(test_file).exists()
+        and Path(test_file).stat().st_size > 0
+    ):
+        logger.info("Valid DFT split outputs detected on disk. Skipping execution.")
+        return {
+            **state,
+            "configs": [train_file],
+            "outfile": [test_file],
+            "step_counter": step_counter + 1,
+        }
+
     split_configset_by_force_agreement(
         in_file=configs,
-        out_file="dft.xyz",
+        out_file=out_files,
         pair_tuple=(
             state["qchem_strategy"].qe_prefix,
             state["mlip_strategy"].mlip_prefix,
@@ -312,10 +527,13 @@ def assess_n_select(state: EnsembleState) -> EnsembleState:
         main_suffix=main_suffix,
         side_suffix=side_suffix,
     )
-    train_data = [f"{main_suffix}_dft.xyz"]
-    test_data = [f"{side_suffix}_dft.xyz"]
 
-    return {**state, "configs": train_data, "outfile": test_data}
+    return {
+        **state,
+        "configs": [train_file],
+        "outfile": [test_file],
+        "step_counter": step_counter + 1,
+    }
 
 
 def run_mace_fit(state: EnsembleState) -> EnsembleState:
@@ -325,12 +543,14 @@ def run_mace_fit(state: EnsembleState) -> EnsembleState:
     state["mlip_strategy"].fit_new_model(
         in_file=configs, test_configs=test_configs, seed=123, restart=False
     )
-    return {**state, "outfile": None}
+    step_counter = state.get("step_counter", 1)
+    return {**state, "outfile": None, "step_counter": step_counter + 1}
 
 
 def _run_structure_generation_logic(
     state: EnsembleState,
     configs: Any,
+    step_suffix: str | None = None,
     mlip_gen_kwargs_override: dict | None = None,
     structure_gen_params_override: dict | None = None,
 ) -> EnsembleState:
@@ -372,11 +592,31 @@ def _run_structure_generation_logic(
     energy_key = f"last_op__{op_name}_energy"
     force_key = f"last_op__{op_name}_forces"
 
-    current_files = state["configs"]
-    outfile = [
-        xyz.replace(".xyz", f"_{structure_generator.calc_prefix}.xyz")
-        for xyz in current_files
-    ]
+    # current_files = state["configs"]
+    current_iter = state.get("iteration", 0)
+    step_counter = state.get("step_counter", 1)
+
+    if step_suffix is None:
+        step_suffix = f"structure_{calc_type}"
+
+    outfile_path = resolve_step_path(
+        step_suffix=step_suffix, iteration=current_iter, step_counter=step_counter
+    )
+    outfile = [outfile_path]
+
+    # Idempotency guard: skip execution if outputs already exist
+    if all(
+        Path(out_f).exists() and Path(out_f).stat().st_size > 0 for out_f in outfile
+    ):
+        logger.info(
+            "Valid structure generation outputs detected on disk. Skipping execution."
+        )
+        return {
+            **state,
+            "configs": outfile,
+            "outfile": None,
+            "step_counter": step_counter + 1,
+        }
 
     # Handle case where input is list of Atoms (e.g. from NEB generation) but outfile is list of files.
     # We merge all outputs to the first file in the list.
@@ -424,7 +664,12 @@ def _run_structure_generation_logic(
         clean_up()
         _log_config_counts(ConfigSet(outfile), msg="after structure generation")
 
-    return {**state, "configs": outfile, "outfile": None}
+    return {
+        **state,
+        "configs": outfile,
+        "outfile": None,
+        "step_counter": step_counter + 1,
+    }
 
 
 def run_mlip_structure_generation(state: EnsembleState) -> EnsembleState:
@@ -474,6 +719,7 @@ def run_apply_basin_constraints(state: EnsembleState) -> EnsembleState:
     return _run_structure_generation_logic(
         state=state,
         configs=constrained_inputs,
+        step_suffix="basin_md",
         mlip_gen_kwargs_override=basin_mlip_gen,
         structure_gen_params_override=basin_structure_gen_params,
     )
@@ -524,7 +770,8 @@ def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
 
     for config_file in state["configs"]:
         # Clean data first
-        cleaned_file = config_file.replace(".xyz", ".cleaned.xyz")
+        current_iter = state.get("iteration", 0)
+        cleaned_file = resolve_step_path(config_file, "cleaned", current_iter)
         clean_configset_data(
             ConfigSet(config_file), OutputSpec(cleaned_file, overwrite=True)
         )
@@ -543,16 +790,15 @@ def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
     gen_result = _run_structure_generation_logic(
         state=state,
         configs=all_prepared_configs,
+        step_suffix="neb_md"
+        if isinstance(state["structure_gen_strategy"], MDGen)
+        else "neb_opt",
         mlip_gen_kwargs_override=neb_mlip_gen,
         structure_gen_params_override=neb_structure_gen_params,
     )
 
     # Update state: configs now contains ALL generated structures (Basin + NEB) so MLIP SP runs on everything
-    return {
-        **state,
-        "configs": gen_result["configs"],
-        "original_configs": original_configs,
-    }
+    return {**gen_result, "original_configs": original_configs}
 
 
 def run_config_fps_selection(state: EnsembleState) -> EnsembleState:
@@ -576,7 +822,12 @@ def run_config_fps_selection(state: EnsembleState) -> EnsembleState:
 
     # Defaults
     desc_key = selection_kwargs.get("descriptor_key", "SOAP")
-    output_prefix = "selection"
+    step_counter = state.get("step_counter", 1)
+    current_iter = state.get("iteration", 0)
+    output_prefix_resolved = resolve_step_path(
+        step_suffix="selection", iteration=current_iter, step_counter=step_counter
+    )
+    output_prefix = output_prefix_resolved.replace(".xyz", "")
     seed = selection_kwargs.get("seed", 10)
 
     logger.info("Initializing ConfigurationSelector")
@@ -611,14 +862,21 @@ def run_config_fps_selection(state: EnsembleState) -> EnsembleState:
     # wait, select_final writes to f'{self.output_prefix}_final_selection.xyz'.
     _log_config_counts(ConfigSet(final_output_file), msg="after selection")
 
-    return {**state, "configs": [final_output_file]}
+    return {**state, "configs": [final_output_file], "step_counter": step_counter + 1}
 
 
 def run_config_uncertainty_selection(state: EnsembleState) -> EnsembleState:
     """ """
     logger.info("Running uncertainty-based configuration selection...")
 
-    selected_configs = "selected_configs.xyz"
+    step_counter = state.get("step_counter", 1)
+    current_iter = state.get("iteration", 0)
+
+    selected_configs = resolve_step_path(
+        step_suffix="selected_configs",
+        iteration=current_iter,
+        step_counter=step_counter,
+    )
 
     select_by_uncertainty(
         train_file=state["last_training_configs"],
@@ -633,7 +891,7 @@ def run_config_uncertainty_selection(state: EnsembleState) -> EnsembleState:
         # dtype: "torch.dtype" = None,
     )
 
-    return {**state, "configs": [selected_configs]}
+    return {**state, "configs": [selected_configs], "step_counter": step_counter + 1}
 
 
 # def run_gmm_relabel(state: EnsembleState) -> EnsembleState:
@@ -691,11 +949,20 @@ def run_topology_relabel(state: EnsembleState) -> EnsembleState:
         in_file=state["configs"], **gcml_kwargs
     )
 
-    out_file = "known_configs.xyz"
-    OutputSpec(out_file).write(ConfigSet(known_configs))
-    OutputSpec("unknown_configs.xyz").write(ConfigSet(unknown_configs))
+    step_counter = state.get("step_counter", 1)
+    current_iter = state.get("iteration", 0)
 
-    return {**state, "configs": [out_file]}
+    out_file = resolve_step_path(
+        step_suffix="known_configs", iteration=current_iter, step_counter=step_counter
+    )
+    unknown_file = resolve_step_path(
+        step_suffix="unknown_configs", iteration=current_iter, step_counter=step_counter
+    )
+
+    OutputSpec(out_file).write(ConfigSet(known_configs))
+    OutputSpec(unknown_file).write(ConfigSet(unknown_configs))
+
+    return {**state, "configs": [out_file], "step_counter": step_counter + 1}
 
 
 # def validate_state(state: EnsembleState, required_keys: list[str]) -> None:
@@ -742,6 +1009,123 @@ def run_topology_relabel(state: EnsembleState) -> EnsembleState:
 #    except Exception as e:
 #        logger.error(f"MLIP error evaluation failed: {str(e)}")
 #        raise RuntimeError(f"MLIP error evaluation failed: {str(e)}")
+
+
+def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
+    """Collapse redundant PES minima via species-chunked Louvain clustering.
+
+    Configurations are cleaned, bucketed by species, and clustered using a
+    topo-energetic network graph with Louvain community detection.  Within
+    each basin the lowest-energy representative is retained.  Survivors
+    are deterministically sorted, written to disk, and the state is
+    updated for downstream NEB pairing.
+
+    Parameters
+    ----------
+    state : EnsembleState
+        Current workflow state.  Must contain ``"configs"`` and
+        ``"mlip_strategy"`` keys.  Optional
+        ``"calculation_kwargs"["rematch"]`` dict may supply
+        ``energy_tol``, ``network_threshold``, ``resolution``,
+        ``gamma``, ``zeta``, ``block_size``, ``max_force``, and
+        ``atom_slice``.
+
+    Returns
+    -------
+    EnsembleState
+        Updated state with collapsed configuration file list.
+
+    Raises
+    ------
+    ValueError
+        If ``state["configs"]`` is missing or empty.
+    KeyError
+        If ``state["mlip_strategy"]`` is missing.
+    """
+    import torch
+    from mace.calculators import MACECalculator
+
+    from mlipflow.data.rematch import species_chunked_louvain_clustering
+
+    logger.info("Executing ReMATCH structural basin collapse.")
+
+    if not state.get("configs"):
+        raise ValueError("No configurations provided in state.")
+
+    if "mlip_strategy" not in state:
+        raise KeyError("mlip_strategy not found in state.")
+
+    # Read parameters from state
+    rematch_kwargs = state.get("calculation_kwargs", {}).get("rematch", {})
+    energy_tol = rematch_kwargs.get("energy_tol", 0.05)
+    network_threshold = rematch_kwargs.get("network_threshold", 0.95)
+    resolution = rematch_kwargs.get("resolution", 1.0)
+    gamma = rematch_kwargs.get("gamma", 0.1)
+    zeta = rematch_kwargs.get("zeta", 1)
+    block_size = rematch_kwargs.get("block_size", 512)
+    max_force = rematch_kwargs.get("max_force", 15.0)
+    atom_slice = rematch_kwargs.get("atom_slice", None)
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    current_files = state["configs"]
+
+    # Clean and standardise configurations
+    mlip = state["mlip_strategy"]
+    calc_type = getattr(state.get("structure_gen_strategy"), "calc_prefix", "opt")
+    atoms_list = list(ConfigSet(current_files))
+    atoms_list = check_maxforce_and_cleanarrays(
+        in_file=atoms_list,
+        out_file=None,
+        mlip_prefix=mlip.mlip_prefix,
+        calc=calc_type,
+        max_force=max_force,
+    )
+
+    num_structures = len(atoms_list)
+
+    if num_structures < 2:
+        logger.info("Fewer than 2 configurations; skipping basin collapse.")
+        return {**state}
+
+    # Resolve MLIP prefix
+    prefix = getattr(mlip, "mlip_prefix", "MACE_")
+    if not isinstance(prefix, str):
+        prefix = "MACE_"
+
+    # Lazy-load calculator and delegate to core clustering
+    mlip_calc = MACECalculator(mlip.model_file, device=device)
+    collapsed_configs = species_chunked_louvain_clustering(
+        atoms_list,
+        mlip_calc,
+        prefix,
+        device,
+        energy_tol=energy_tol,
+        network_threshold=network_threshold,
+        resolution=resolution,
+        gamma=gamma,
+        zeta=zeta,
+        block_size=block_size,
+        atom_slice=atom_slice,
+    )
+
+    step_counter = state.get("step_counter", 1)
+    current_iter = state.get("iteration", 0)
+
+    # Write survivors to disk
+    out_file = resolve_step_path(
+        step_suffix="collapsed_basin_configs",
+        iteration=current_iter,
+        step_counter=step_counter,
+    )
+    OutputSpec(out_file).write(ConfigSet(collapsed_configs))
+
+    logger.info(
+        "Basin collapse complete. Compressed %d -> %d distinct states.",
+        num_structures,
+        len(collapsed_configs),
+    )
+
+    return {**state, "configs": [out_file], "step_counter": step_counter + 1}
 
 
 # def clean_dft_data(state: EnsembleState) -> EnsembleState:

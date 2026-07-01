@@ -87,7 +87,10 @@ def split_configset_by_force_agreement(
     side_at = [list(configs)[idx] for idx in side_chunk]
 
     for atoms, suffix in zip([main_at, side_at], [main_suffix, side_suffix]):
-        write(f"{suffix}_{out_file}", atoms)
+        if isinstance(out_file, dict):
+            write(out_file[suffix], atoms)
+        else:
+            write(f"{suffix}_{out_file}", atoms)
 
 
 def select_by_uncertainty(

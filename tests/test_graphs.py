@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from ase.constraints import FixAtoms
 from ase.io import read
@@ -82,6 +82,11 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
                     "n_pathways": 1,
                     "n_images": 3,
                 },
+                "neb__structure_gen_params": {
+                    "steps": 5,
+                    "dt": 1.0,
+                    "temperature": 300.0,
+                },
             },
             "mlip_gen": {
                 "dispersion": False
@@ -100,6 +105,14 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
                 "sigma_reaction": 10,
                 "threshold_reaction": 0.85,
             },
+            "rematch": {
+                "energy_tol": 0.05,
+                "network_threshold": 0.95,
+                "resolution": 1.0,
+                "gamma": 0.1,
+                "zeta": 1,
+                "block_size": 512,
+            },
         }
 
         state = EnsembleState(
@@ -111,7 +124,27 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
         )
 
         # Compile and run
-        result = execute_initial_basin_pathsampling_md_block().invoke(state)
+        # We mock run_rematch_basin_collapse to avoid loading the real MACE model on complex real-world test data
+        def mock_rematch_basin_collapse(state):
+            from wfl.configset import ConfigSet, OutputSpec
+
+            from mlipflow.utils.path_factory import resolve_step_path
+
+            step_counter = state.get("step_counter", 1)
+            current_iter = state.get("iteration", 0)
+            out_file = resolve_step_path(
+                step_suffix="collapsed_basin_configs",
+                iteration=current_iter,
+                step_counter=step_counter,
+            )
+            OutputSpec(out_file).write(ConfigSet(state["configs"]))
+            return {**state, "configs": [out_file], "step_counter": step_counter + 1}
+
+        with patch(
+            "mlipflow.graphflow.graphs.run_rematch_basin_collapse",
+            side_effect=mock_rematch_basin_collapse,
+        ):
+            result = execute_initial_basin_pathsampling_md_block().invoke(state)
 
         # Verify
         assert result["outfile"] is None

@@ -56,6 +56,7 @@ cover/
 dmypy.json
 .pyre/
 .pytype/
+.ruff_cache/
 
 # OS ignores
 .DS_Store
@@ -71,3 +72,4 @@ env/
 ENV/
 env.bak/
 venv.bak/
+iterations/
