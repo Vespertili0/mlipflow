@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+from ase import Atoms
 from ase.constraints import FixAtoms, FixBondLength
 from ase.io import read
 
@@ -89,3 +90,116 @@ def test_neb_pairing_and_opt(test_data_setup):
             # Since we use EMTCalc (generic), it might add DFT_energy or similar
             # OPTGen puts 'optimize_config_type' in info
             assert "optimize_config_type" in optimized_atoms[0].info
+
+
+def _make_atoms(species: str) -> Atoms:
+    """Return a minimal 3-atom Atoms object with a species label."""
+    atoms = Atoms("H3", positions=[[0, 0, 0], [1, 0, 0], [2, 0, 0]])
+    atoms.info["species"] = species
+    return atoms
+
+
+@pytest.fixture
+def structures_file(tmp_path):
+    """Write a minimal XYZ file containing 'A' and 'B' species."""
+    from ase.io import write
+
+    structures = [_make_atoms("A"), _make_atoms("A"), _make_atoms("B")]
+    fpath = str(tmp_path / "structures.xyz")
+    write(fpath, structures)
+    return fpath
+
+
+@pytest.fixture
+def npf(structures_file):
+    from mlipflow.core.neb_pairing import NEBPairFinder
+
+    return NEBPairFinder(structures_file)
+
+
+def test_has_species_pair_both_present(npf):
+    assert npf.has_species_pair("A -> B") == (True, "")
+
+
+def test_has_species_pair_missing_start(npf):
+    ok, msg = npf.has_species_pair("X -> B")
+    assert not ok
+    assert "'X'" in msg
+
+
+def test_has_species_pair_missing_end(npf):
+    ok, msg = npf.has_species_pair("A -> Y")
+    assert not ok
+    assert "'Y'" in msg
+
+
+def test_has_species_pair_malformed_string(npf):
+    ok, msg = npf.has_species_pair("A B")
+    assert not ok
+    assert "Malformed" in msg
+
+
+def test_generate_random_missing_species_returns_empty(npf):
+    assert npf.generate_random("X -> B", n_pairings=3) == []
+
+
+from unittest.mock import MagicMock, patch
+
+
+def test_generate_random_missing_species_logs_warning(npf):
+    with patch("mlipflow.core.neb_pairing.logger.warning") as mock_warn:
+        npf.generate_random("X -> B", n_pairings=3)
+        mock_warn.assert_called()
+        assert "X -> B" in mock_warn.call_args[0][1]
+
+
+def test_generate_similarity_missing_species_returns_empty(npf):
+    assert (
+        npf.generate_similarity_pathways(
+            "X -> B", n_pathways=3, descriptor_string="dummy"
+        )
+        == []
+    )
+
+
+def test_generate_similarity_missing_species_logs_warning(npf):
+    with patch("mlipflow.core.neb_pairing.logger.warning") as mock_warn:
+        npf.generate_similarity_pathways(
+            "X -> B", n_pathways=3, descriptor_string="dummy"
+        )
+        mock_warn.assert_called()
+        assert "X -> B" in mock_warn.call_args[0][1]
+
+
+def test_create_neb_pairs_skips_missing_species(structures_file):
+    rxn_constraints_dict = {"A -> B": [], "X -> B": []}
+    with (
+        patch(
+            "mlipflow.core.neb_pairing.NEBPairFinder.generate_similarity_pathways"
+        ) as mock_gen,
+        patch("mlipflow.core.neb_pairing.wfl_map") as mock_wfl,
+    ):
+        mock_gen.side_effect = (
+            lambda transition_string, **kwargs: [MagicMock()]
+            if transition_string == "A -> B"
+            else []
+        )
+        mock_wfl.return_value = MagicMock()
+
+        results = create_neb_pairs(
+            xyz_file=structures_file,
+            rxn_constraints_dict=rxn_constraints_dict,
+            method="similarity",
+            descriptor_string="dummy",
+        )
+        assert len(results) == 1
+
+
+def test_create_neb_pairs_all_missing_returns_empty_list(structures_file):
+    rxn_constraints_dict = {"X -> Y": [], "Z -> W": []}
+    results = create_neb_pairs(
+        xyz_file=structures_file,
+        rxn_constraints_dict=rxn_constraints_dict,
+        method="random",
+    )
+    assert results == []
