@@ -62,7 +62,7 @@ class NEBPairFinder:
 
         # Setup NEB
         neb = NEB(images)
-        neb.interpolate(method=method)
+        neb.interpolate(method=method, apply_constraint=False)
 
         return images
 
@@ -78,6 +78,15 @@ class NEBPairFinder:
         Returns:
             list: List of generated NEB pathways (lists of Atoms objects).
         """
+        ok, reason = self.has_species_pair(transition_string)
+        if not ok:
+            logger.warning(
+                "Skipping NEB pathway generation for '%s': %s",
+                transition_string,
+                reason,
+            )
+            return []
+
         start_pool, end_pool = self._get_pools_from_transition(transition_string)
         generated_pathways = []
         seen_pairs = set()
@@ -137,6 +146,15 @@ class NEBPairFinder:
         if atom_slice is None:
             atom_slice = slice(None)
 
+        ok, reason = self.has_species_pair(transition_string)
+        if not ok:
+            logger.warning(
+                "Skipping NEB pathway generation for '%s': %s",
+                transition_string,
+                reason,
+            )
+            return []
+
         start_pool, end_pool = self._get_pools_from_transition(transition_string)
         # Calculate similarity matrix between start and end pools
         sim_matrix = create_similarity_matrix(
@@ -181,6 +199,38 @@ class NEBPairFinder:
             )
 
         return generated_pathways
+
+    def has_species_pair(self, transition_string: str) -> tuple[bool, str]:
+        """Check whether both species referenced in a transition string exist in the pool.
+
+        Performs a lightweight label scan without allocating any descriptor arrays
+        or Atoms copies. Intended as a pre-flight guard before any pairing logic.
+
+        Args:
+            transition_string (str): Reaction label in format 'reactant -> product'.
+
+        Returns:
+            tuple[bool, str]: A 2-tuple of:
+                - ``True, ""`` if both species labels are present in ``self.structures``.
+                - ``False, <reason>`` where ``<reason>`` is a human-readable message
+                  identifying which label is missing or why the string is malformed.
+        """
+        try:
+            start_label, end_label = map(str.strip, transition_string.split("->"))
+        except ValueError:
+            return (
+                False,
+                f"Malformed transition string: '{transition_string}' (expected 'label1 -> label2')",
+            )
+
+        available = {atoms.info.get("species") for atoms in self.structures}
+
+        if start_label not in available:
+            return False, f"Missing reactant species '{start_label}' in structure pool"
+        if end_label not in available:
+            return False, f"Missing product species '{end_label}' in structure pool"
+
+        return True, ""
 
     def _get_pools_from_transition(self, transition_string):
         """Extracts and validates reactant and product pools from a transition string.
@@ -291,23 +341,6 @@ def create_neb_pairs(
 
     npf = NEBPairFinder(xyz_file)
 
-    # list-of-lists: one list of paths per reaction
-    all_paths = []
-    for rxn_string in rxn_constraints_dict:
-        if method == "similarity":
-            paths = npf.generate_similarity_pathways(
-                transition_string=rxn_string,
-                n_pathways=n_pathways,
-                descriptor_string=descriptor_string,
-                atom_slice=atom_slice,
-                n_images=n_images,
-            )
-        elif method == "random":
-            paths = npf.generate_random(
-                transition_string=rxn_string, n_pairings=n_pathways, n_images=n_images
-            )
-        all_paths.append(paths)
-
     def apply_constraints(at, constraint_list):
         if isinstance(at, list):
             for a in at:
@@ -316,11 +349,37 @@ def create_neb_pairs(
             at.constraints = constraint_list
         return at
 
-    # Apply wfl_map to each list of paths, using matching constraint list
     mapped_results = []
-    for (_rxn_string, constraint_list), paths in zip(
-        rxn_constraints_dict.items(), all_paths
-    ):
+    for rxn_string, constraint_list in rxn_constraints_dict.items():
+        try:
+            if method == "similarity":
+                paths = npf.generate_similarity_pathways(
+                    transition_string=rxn_string,
+                    n_pathways=n_pathways,
+                    descriptor_string=descriptor_string,
+                    atom_slice=atom_slice,
+                    n_images=n_images,
+                )
+            elif method == "random":
+                paths = npf.generate_random(
+                    transition_string=rxn_string,
+                    n_pairings=n_pathways,
+                    n_images=n_images,
+                )
+        except ValueError as exc:
+            logger.warning(
+                "Skipping NEB pairing for '%s' due to unexpected error: %s",
+                rxn_string,
+                exc,
+            )
+            continue
+
+        if not paths:
+            logger.warning(
+                "Skipping wfl_map for '%s': no pathways were generated.", rxn_string
+            )
+            continue
+
         mapped_results.append(
             wfl_map(
                 inputs=ConfigSet(paths),
