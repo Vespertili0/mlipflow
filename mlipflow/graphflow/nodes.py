@@ -74,6 +74,11 @@ class EnsembleState(TypedDict):
                 - 'info_field': info field for histogram selection
                 - 'n_optimal': optimal number of configs (optional)
                 - 'n_max': max configs for optimal N search (optional)
+            - 'neb_analysis': kwargs for NEB trajectory analysis
+                - 'prefixes': method prefixes for energy/force keys (default: ("MACE", "DFT"))
+                - 'n_frames': frames per NEB pathway (default: None -> single pathway)
+                - 'dpi': figure resolution (default: 150)
+                - 'fmt': output format, e.g. "png", "pdf", "svg" (default: "png")
     """
 
     configs: list[str]
@@ -1140,3 +1145,70 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
 #        ValueError: If configs list is empty
 #    """
 #    check_maxforce_and_cleanarrays
+
+
+def analyse_neb_pathways(state: EnsembleState) -> EnsembleState:
+    """Execute NEB trajectory analysis and write figures to the iteration directory.
+
+    Parses configuration files in ``state["configs"]``, runs :class:`NEBAnalysis`,
+    and exports standardised matplotlib figures directly to the active iteration's
+    output directory. Does not mutate state dictionary payloads beyond step counting.
+
+    Parameters
+    ----------
+    state : EnsembleState
+        Current workflow state. Must contain ``"configs"``. Optional
+        ``"calculation_kwargs"["neb_analysis"]`` dict may supply
+        ``prefixes`` (default: ``("MACE", "DFT")``), ``n_frames``, ``dpi``,
+        and ``fmt``.
+
+    Returns
+    -------
+    EnsembleState
+        State with incremented ``step_counter``.
+
+    Raises
+    ------
+    ValueError
+        If ``state["configs"]`` is missing or empty.
+    """
+    from mlipflow.core import NEBAnalysis
+
+    logger.info("Executing NEB trajectory analysis and writing figures.")
+
+    if not state.get("configs"):
+        logger.error("No configurations provided in state.")
+        raise ValueError("No configurations provided in state.")
+
+    # Read kwargs and state parameters
+    analysis_kwargs = state.get("calculation_kwargs", {}).get("neb_analysis", {})
+    prefixes = analysis_kwargs.get("prefixes", ("MACE", "DFT"))
+    n_frames = analysis_kwargs.get("n_frames", None)
+    dpi = analysis_kwargs.get("dpi", 150)
+    fmt = analysis_kwargs.get("fmt", "png")
+
+    current_iter = state.get("iteration", 0)
+    step_counter = state.get("step_counter", 1)
+
+    # Resolve output directory under iteration folder
+    output_dir = Path("iterations") / f"iter_{current_iter}" / "NEB_plots"
+
+    fig_count = 0
+    for config_file in state["configs"]:
+        try:
+            # Isolate each config file's outputs in its own subdirectory
+            file_stem = Path(config_file).stem
+            file_out_dir = output_dir / file_stem
+            file_out_dir.mkdir(parents=True, exist_ok=True)
+
+            analyzer = NEBAnalysis.from_file(config_file, n_frames=n_frames)
+            saved_dict = analyzer.save_plots(
+                output_dir=file_out_dir, prefixes=prefixes, dpi=dpi, fmt=fmt
+            )
+            fig_count += sum(len(lst) for lst in saved_dict.values())
+        except Exception as exc:
+            logger.warning("NEBAnalysis skipped for file '%s': %s", config_file, exc)
+
+    logger.info("NEB analysis complete. Saved %d figures to %s", fig_count, output_dir)
+
+    return {**state, "step_counter": step_counter + 1}
