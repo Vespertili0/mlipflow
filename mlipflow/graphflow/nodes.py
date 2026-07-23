@@ -964,6 +964,12 @@ def run_topology_relabel(state: EnsembleState) -> EnsembleState:
         step_suffix="unknown_configs", iteration=current_iter, step_counter=step_counter
     )
 
+    if not known_configs:
+        logger.warning(
+            "No known configs found by relabeller, falling back to treating all configs as known"
+        )
+        known_configs = list(ConfigSet(state["configs"]))
+
     OutputSpec(out_file).write(ConfigSet(known_configs))
     OutputSpec(unknown_file).write(ConfigSet(unknown_configs))
 

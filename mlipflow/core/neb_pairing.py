@@ -62,7 +62,7 @@ class NEBPairFinder:
 
         # Setup NEB
         neb = NEB(images)
-        neb.interpolate(method=method)
+        neb.interpolate(method=method, apply_constraint=False)
 
         return images
 

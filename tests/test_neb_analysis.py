@@ -15,10 +15,13 @@ from mlipflow.core import NEBAnalysis
 
 
 def _make_image(
-    energy: float, forces_scale: float = 1.0, fix_first: bool = False
+    energy: float,
+    forces_scale: float = 1.0,
+    fix_first: bool = False,
+    offset: float = 0.0,
 ) -> Atoms:
     """Return a 3-atom H2O-like Atoms with prefixed energy/forces populated."""
-    positions = np.array([[0.0, 0.0, 0.0], [0.96, 0.0, 0.0], [0.0, 0.96, 0.0]])
+    positions = np.array([[0.0, 0.0, 0.0], [0.96, 0.0, 0.0], [0.0, 0.96, 0.0]]) + offset
     atoms = Atoms("H2O", positions=positions)
     atoms.info["species"] = "H2O"
     atoms.info["MACE_energy"] = energy
@@ -36,14 +39,18 @@ def _make_image(
 def single_path() -> list[Atoms]:
     """A minimal 5-image NEB path with a simple energy barrier."""
     energies = [0.0, 0.5, 1.0, 0.5, 0.1]
-    return [_make_image(e, forces_scale=0.3) for e in energies]
+    return [
+        _make_image(e, forces_scale=0.3, offset=i * 0.1) for i, e in enumerate(energies)
+    ]
 
 
 @pytest.fixture
 def two_path_images() -> list[Atoms]:
     """Ten images forming two 5-image paths for the same reaction."""
     energies = [0.0, 0.5, 1.0, 0.5, 0.1, 0.0, 0.4, 0.9, 0.3, 0.05]
-    return [_make_image(e, forces_scale=0.3) for e in energies]
+    return [
+        _make_image(e, forces_scale=0.3, offset=i * 0.1) for i, e in enumerate(energies)
+    ]
 
 
 @pytest.fixture
@@ -202,9 +209,9 @@ def test_save_plots_creates_dir(neb, tmp_path):
 
 @pytest.mark.unit
 def test_constraint_aware_fmax():
-    img1 = _make_image(0.0, fix_first=True)
-    img2 = _make_image(0.5, fix_first=True)
-    img3 = _make_image(1.0, fix_first=True)
+    img1 = _make_image(0.0, fix_first=True, offset=0.0)
+    img2 = _make_image(0.5, fix_first=True, offset=0.1)
+    img3 = _make_image(1.0, fix_first=True, offset=0.2)
     images = [img1, img2, img3]
     neb_c = NEBAnalysis(images)
     fmax_list, _, _ = neb_c.get_force_components(images, prefix="MACE")
