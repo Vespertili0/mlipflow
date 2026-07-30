@@ -24,10 +24,8 @@ def update_training_data(
     training_xyz: str, add_xyz: str, out_file: str
 ) -> None:  # !!! modify to ConfigSet
     """Update training data by merging two XYZ files."""
-    new_training = read(training_xyz, ":")
-    new_training += read(add_xyz, ":")
     update_configset_tag(
-        new_training, out_file, {"data_type": "train"}, tag_type="info"
+        [training_xyz, add_xyz], out_file, {"data_type": "train"}, tag_type="info"
     )
 
 

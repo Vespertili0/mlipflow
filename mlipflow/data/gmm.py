@@ -60,11 +60,13 @@ class TorchGMM:
         # Compute Cholesky decomposition for each component's covariance matrix, LxL^T = sigma_reg
         L = torch.linalg.cholesky(sigma_reg)  # Shape: (K, D, D)
 
-        # FIX: Align batch dimensions perfectly for the solver
-        # L becomes (1, K, D, D) and diff becomes (N, K, D, 1)
+        # Align batch dimensions perfectly for the solver
+        # L becomes (N, K, D, D) and diff becomes (N, K, D, 1)
         # Resulting 'y' will be shape (N, K, D, 1)
         y = torch.linalg.solve_triangular(
-            L.unsqueeze(0), diff.unsqueeze(-1), upper=False
+            L.unsqueeze(0).expand(diff.shape[0], -1, -1, -1),
+            diff.unsqueeze(-1),
+            upper=False,
         )
 
         # Calculate quadrance (Mahalanobis distance squared)

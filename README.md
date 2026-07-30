@@ -1,21 +1,7 @@
 # mlipflow
 
 <p align="center">
-  <a href="https://github.com/Vespertili0/mlipflow/actions/workflows/tests.yaml">
-    <img src="https://github.com/Vespertili0/mlipflow/actions/workflows/tests.yaml/badge.svg" alt="Tests">
-  </a>
-  <a href="https://github.com/Vespertili0/mlipflow">
-    <img src="https://github.com/Vespertili0/mlipflow/actions/workflows/docs.yaml/badge.svg" alt="Documentation">
-  </a>
-  <a href="https://opensource.org/licenses/MIT">
-    <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
-  </a>
-  <a href="https://www.python.org/downloads/">
-    <img src="https://img.shields.io/badge/python-3.9%2B-blue" alt="Python Version">
-  </a>
-  <a href="https://codecov.io/gh/Vespertili0/mlipflow">
-    <img src="https://img.shields.io/codecov/c/github/Vespertili0/mlipflow" alt="codecov">
-  </a>
+  <a href="https://github.com/pre-commit/pre-commit"><img src="https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white" alt="pre-commit"></a> <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a> <a href="https://github.com/Vespertili0/mlipflow/actions/workflows/tests.yaml"><img src="https://github.com/Vespertili0/mlipflow/actions/workflows/tests.yaml/badge.svg" alt="Tests"></a> <a href="https://github.com/Vespertili0/mlipflow"><img src="https://github.com/Vespertili0/mlipflow/actions/workflows/docs.yaml/badge.svg" alt="Documentation"></a> <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.9%2B-blue" alt="Python Version"></a> <a href="https://codecov.io/gh/Vespertili0/mlipflow"><img src="https://img.shields.io/codecov/c/github/Vespertili0/mlipflow" alt="codecov"></a> <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-EE4C2C?style=flat&logo=pytorch&logoColor=white" alt="PyTorch"></a> <a href="https://github.com/langchain-ai/langgraph"><img src="https://img.shields.io/badge/LangGraph-1C3C3C?style=flat&logo=langchain&logoColor=white" alt="LangGraph"></a>
 </p>
 
 **Automating Reaction Pathway Exploration with Machine-Learned Interatomic Potentials (MLIPs)**

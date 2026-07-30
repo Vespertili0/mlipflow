@@ -13,7 +13,6 @@ except ImportError:
 
 from ase.md.logger import MDLogger
 from ase.md.velocitydistribution import MaxwellBoltzmannDistribution, Stationary
-from ase.parallel import DummyMPI
 from ase.units import fs
 from wfl.autoparallelize import autoparallelize, autoparallelize_docstring
 from wfl.generate.utils import save_config_type
@@ -126,7 +125,7 @@ def _sample_autopara_wrappable_single(
             at,
             temperature_K=temperature_use[0]["T_i"],
             force_temp=True,
-            comm=DummyMPI(),
+            communicator=None,
             rng=rng,
         )
         Stationary(at, preserve_temperature=True)
@@ -297,8 +296,6 @@ def _sample_autopara_wrappable_kwargs(atoms, calculator, steps, dt, **kwargs):
 
 
 def md(*args, **kwargs):
-    kwargs.setdefault("steps", 1)
-    kwargs.setdefault("dt", 1.0)
     default_autopara_info = {"num_inputs_per_python_subprocess": 10}
     return autoparallelize(
         _sample_autopara_wrappable,

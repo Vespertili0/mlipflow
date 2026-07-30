@@ -90,6 +90,7 @@ class EnsembleState(TypedDict):
     structure_gen_strategy: NotRequired[StructureGenStrategy]
     calculation_kwargs: NotRequired[dict[str, Any]]
     original_configs: NotRequired[list[str]]
+    pre_collapsed_configs: NotRequired[list[str]]
     last_training_configs: NotRequired[list[str]]
 
 
@@ -129,9 +130,11 @@ def merge_configs(state: EnsembleState) -> EnsembleState:
     """Merge original and generated configurations."""
     logger.info("Merging original and generated configurations")
 
-    if not state.get("original_configs"):
-        logger.error("No original configurations provided in state")
-        raise ValueError("No original configurations provided in state")
+    if not state.get("original_configs") and not state.get("pre_collapsed_configs"):
+        logger.error("No original or pre-collapsed configurations provided in state")
+        raise ValueError(
+            "No original or pre-collapsed configurations provided in state"
+        )
 
     step_counter = state.get("step_counter", 1)
     current_iter = state.get("iteration", 0)
@@ -144,7 +147,11 @@ def merge_configs(state: EnsembleState) -> EnsembleState:
         logger.info("Valid merged configs output detected on disk. Skipping execution.")
         return {**state, "configs": [outfile_path], "step_counter": step_counter + 1}
 
-    merged = ConfigSet(state["original_configs"]) + ConfigSet(state["configs"])
+    if state.get("pre_collapsed_configs"):
+        logger.info("Merging pre-collapsed configs with generated configs")
+        merged = ConfigSet(state["pre_collapsed_configs"]) + ConfigSet(state["configs"])
+    else:
+        merged = ConfigSet(state["original_configs"]) + ConfigSet(state["configs"])
     _log_config_counts(merged, msg="after merging")
     OutputSpec(outfile_path).write(merged)
 
@@ -1136,7 +1143,12 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
         len(collapsed_configs),
     )
 
-    return {**state, "configs": [out_file], "step_counter": step_counter + 1}
+    return {
+        **state,
+        "pre_collapsed_configs": state.get("configs", []),
+        "configs": [out_file],
+        "step_counter": step_counter + 1,
+    }
 
 
 # def clean_dft_data(state: EnsembleState) -> EnsembleState:

@@ -36,6 +36,7 @@ def execute_mlip_structure_generation_block():
     graph = StateGraph(EnsembleState)
 
     graph.add_node("gen_structs", run_mlip_structure_generation)
+    graph.add_node("check_config_labels", run_topology_relabel)
     graph.add_node("mlip_sp", run_mlip_sp)
     graph.add_node("select_uncertain_configs", run_config_uncertainty_selection)
 
