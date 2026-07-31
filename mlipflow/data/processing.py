@@ -34,7 +34,7 @@ def check_maxforce_and_cleanarrays(
     out_file: str | None = None,
     mlip_prefix: str = "MACE",
     calc: str = "opt",
-    max_force: float = 15.0,
+    max_force: float = 12.0,
 ) -> list[Atoms]:
     """Remove structures with forces exceeding threshold and rename energy/force keys.
     Also acts as a strict filter to drop configurations missing energy data.

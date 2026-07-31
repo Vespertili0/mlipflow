@@ -506,10 +506,10 @@ def assess_n_select(state: EnsembleState) -> EnsembleState:
     current_iter = state.get("iteration", 0)
 
     train_file = resolve_step_path(
-        step_suffix="train_dft", iteration=current_iter, step_counter=step_counter
+        step_suffix="dft_train", iteration=current_iter, step_counter=step_counter
     )
     test_file = resolve_step_path(
-        step_suffix="test_dft", iteration=current_iter, step_counter=step_counter
+        step_suffix="dft_test", iteration=current_iter, step_counter=step_counter
     )
 
     out_files = {main_suffix: train_file, side_suffix: test_file}
@@ -536,6 +536,7 @@ def assess_n_select(state: EnsembleState) -> EnsembleState:
             state["qchem_strategy"].qe_prefix,
             state["mlip_strategy"].mlip_prefix,
         ),
+        mlip_prefix=state["mlip_strategy"].mlip_prefix,
         main_suffix=main_suffix,
         side_suffix=side_suffix,
     )
@@ -1152,7 +1153,7 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
 
 
 # def clean_dft_data(state: EnsembleState) -> EnsembleState:
-#    """Clean DFT data by removing unnecessary info and standardizing keys.
+#    """Clean DFT data by removing unnecessary info and standardising keys.
 #
 #    Args:
 #        state (EnsembleState): Current workflow state
