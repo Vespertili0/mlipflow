@@ -28,26 +28,6 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-def execute_mlip_structure_generation_block():
-    """
-    Workflow to generate new structures via MLIP MD/OPT/DyNEB.
-    """
-    logger.info("...Executing MLIP structure generation block...")
-    graph = StateGraph(EnsembleState)
-
-    graph.add_node("gen_structs", run_mlip_structure_generation)
-    graph.add_node("check_config_labels", run_topology_relabel)
-    graph.add_node("mlip_sp", run_mlip_sp)
-    graph.add_node("select_uncertain_configs", run_config_uncertainty_selection)
-
-    graph.add_edge(START, "gen_structs")
-    graph.add_edge("gen_structs", "mlip_sp")
-    graph.add_edge("mlip_sp", "select_uncertain_configs")
-    graph.add_edge("select_uncertain_configs", END)
-
-    return graph.compile()
-
-
 def execute_dft_single_point_block():
     """
     Workflow to prepare, run, postprocess DFT single-point calculations.
