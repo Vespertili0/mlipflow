@@ -907,42 +907,6 @@ def run_config_uncertainty_selection(state: EnsembleState) -> EnsembleState:
     return {**state, "configs": [selected_configs], "step_counter": step_counter + 1}
 
 
-# def run_gmm_relabel(state: EnsembleState) -> EnsembleState:
-#    """
-#    Run semi-supervised GMM re-labelling on configurations.
-#    """
-#    logger.info("Running semi-supervised GMM re-labelling...")
-#
-#    from mlipflow.data.semi_supervised_gmm import GMMLabelChecker
-#
-#    if not state.get('configs'):
-#        logger.error("No configurations provided in state")
-#        raise ValueError("No configurations provided in state")
-#
-#    if not state.get('last_training_configs'):
-#        logger.error("last_training_configs not found in state")
-#        raise ValueError("last_training_configs not found in state")
-#
-#    gmm_kwargs = state.get('calculation_kwargs', {}).get('gmm_relabel', {}).copy()
-#    device = gmm_kwargs.pop('device', 'cpu')
-#
-#    checker = GMMLabelChecker(
-#        train_file=state['last_training_configs'],
-#        pool_file=state['configs'],
-#        mlip_strategy=state['mlip_strategy'],
-#        device=device,
-#        **gmm_kwargs
-#    )
-#
-#    certain_configs, uncertain_configs, _ = checker.run()
-#
-#    out_file = 'relabelled_configs.xyz'
-#    OutputSpec(out_file).write(ConfigSet(certain_configs))
-#    OutputSpec('uncertain_configs.xyz').write(ConfigSet(uncertain_configs))
-#
-#    return {**state, 'configs': [out_file]}
-
-
 def run_topology_relabel(state: EnsembleState) -> EnsembleState:
     """
     Run topology-based re-labelling on configurations.
@@ -982,52 +946,6 @@ def run_topology_relabel(state: EnsembleState) -> EnsembleState:
     OutputSpec(unknown_file).write(ConfigSet(unknown_configs))
 
     return {**state, "configs": [out_file], "step_counter": step_counter + 1}
-
-
-# def validate_state(state: EnsembleState, required_keys: list[str]) -> None:
-#    """Validate state contains required keys with non-empty values"""
-#    missing = [key for key in required_keys if not state.get(key)]
-#    if missing:
-#        raise WorkflowError(f"Missing required state keys: {missing}", state)
-#
-#
-# def validate_workflow(workflow, initial_state: EnsembleState) -> None:
-#    """Validate workflow configuration and initial state"""
-#    # Validate nodes
-#    required_nodes = {'dft_sp', 'train_mace'}
-#    missing_nodes = required_nodes - set(workflow.nodes)
-#    if missing_nodes:
-#        raise ValueError(f"Missing required nodes: {missing_nodes}")
-#
-#    # Validate initial state
-#    validate_state(initial_state, ['configs', 'qchem_strategy', 'mlip_strategy'])
-
-
-# def evalute_mlip_error(state: EnsembleState) -> EnsembleState:
-#    """
-#    Evaluate MLIP error against DFT reference data.
-#
-#    Args:
-#        state (EnsembleState): Current workflow state
-#    Returns:
-#        EnsembleState: Updated workflow state
-#    Raises:
-#        KeyError: If required state keys are missing
-#        ValueError: If configs list is empty
-#    """
-#    if not state.get('configs'):
-#        raise ValueError("No configurations provided in state")
-#
-#    try:
-#        calculate_mlip_error(
-#            in_configs=state['configs'],
-#            out_file='error_analysis.xyz',
-#            calc_property_prefix=state['mlip_strategy'].mlip_prefix,
-#            fig_dir='.'
-#            )
-#    except Exception as e:
-#        logger.error(f"MLIP error evaluation failed: {str(e)}")
-#        raise RuntimeError(f"MLIP error evaluation failed: {str(e)}")
 
 
 def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
@@ -1150,20 +1068,6 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
         "configs": [out_file],
         "step_counter": step_counter + 1,
     }
-
-
-# def clean_dft_data(state: EnsembleState) -> EnsembleState:
-#    """Clean DFT data by removing unnecessary info and standardising keys.
-#
-#    Args:
-#        state (EnsembleState): Current workflow state
-#    Returns:
-#        EnsembleState: Updated workflow state
-#    Raises:
-#        KeyError: If required state keys are missing
-#        ValueError: If configs list is empty
-#    """
-#    check_maxforce_and_cleanarrays
 
 
 def analyse_neb_pathways(state: EnsembleState) -> EnsembleState:
