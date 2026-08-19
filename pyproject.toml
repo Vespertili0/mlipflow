@@ -60,6 +60,9 @@ addopts = ["-p no:warnings", "--import-mode=importlib"]
 xfail_strict = true
 log_cli_level = "warn"
 testpaths = ["tests"]
+markers = [
+    "unit: fast, dependency-free unit tests",
+]
 
 [tool.black]
 exclude = '''

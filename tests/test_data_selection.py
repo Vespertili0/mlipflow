@@ -29,6 +29,7 @@ def test_split_configset_by_force_agreement(tmp_path):
         # So top 20% should be the ones with index >= 80.
         error = 10.0 if i >= 80 else 0.1
         at.arrays["MACE_forces"] = np.array([[error, 0.0, 0.0]])
+        at.info["DFT_energy"] = 0.0
         at.info["index"] = i
         atoms_list.append(at)
 

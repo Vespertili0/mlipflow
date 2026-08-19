@@ -9,8 +9,9 @@ from langgraph.graph import END, START, StateGraph
 
 from mlipflow.graphflow.graphs import (
     execute_dft_single_point_block,
-    execute_mlip_structure_generation_block,
+    execute_initial_basin_pathsampling_md_block,
     execute_mlip_training_block,
+    execute_opt_neb_combination_block,
 )
 from mlipflow.graphflow.nodes import EnsembleState  # noqa: TC001
 
@@ -54,7 +55,10 @@ def _propagate_iteration(state: ActiveLearningFlow) -> EnsembleState:
 def generate_new_structures(state: ActiveLearningFlow) -> ActiveLearningFlow:
     """Run structure generation subgraph."""
     es = _propagate_iteration(state)
-    subgraph_out = execute_mlip_structure_generation_block().invoke(es)
+    if state.get("iteration", 0) == 0:
+        subgraph_out = execute_initial_basin_pathsampling_md_block().invoke(es)
+    else:
+        subgraph_out = execute_opt_neb_combination_block().invoke(es)
     return {**state, "ensemble_state": subgraph_out}
 
 

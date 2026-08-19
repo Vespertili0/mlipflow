@@ -31,7 +31,7 @@ def test_propagate_iteration():
     assert es is not state["ensemble_state"]
 
 
-@patch("mlipflow.graphflow.activelearner.execute_mlip_structure_generation_block")
+@patch("mlipflow.graphflow.activelearner.execute_opt_neb_combination_block")
 def test_generate_new_structures(mock_block):
     """Test generate_new_structures node execution.
 
@@ -112,7 +112,7 @@ def test_train_new_mlip_model(mock_block):
 
 
 @patch("mlipflow.graphflow.activelearner.SqliteSaver.from_conn_string")
-@patch("mlipflow.graphflow.activelearner.execute_mlip_structure_generation_block")
+@patch("mlipflow.graphflow.activelearner.execute_opt_neb_combination_block")
 @patch("mlipflow.graphflow.activelearner.execute_dft_single_point_block")
 @patch("mlipflow.graphflow.activelearner.execute_mlip_training_block")
 def test_run_active_learning_loop(

@@ -444,8 +444,9 @@ def species_chunked_louvain_clustering(
 
         # ── 2e. Representative selection ──────────────────────────────
         for community in communities:
-            indices = sorted(community)
-            best_idx = min(indices, key=lambda idx: _get_sort_key(bucket[idx], prefix))
+            best_idx = min(
+                community, key=lambda idx: (_get_sort_key(bucket[idx], prefix), idx)
+            )
             survivors.append(bucket[best_idx])
 
     # ── 3. Deterministic sort ─────────────────────────────────────────

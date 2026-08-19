@@ -28,25 +28,6 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-def execute_mlip_structure_generation_block():
-    """
-    Workflow to generate new structures via MLIP MD/OPT/DyNEB.
-    """
-    logger.info("...Executing MLIP structure generation block...")
-    graph = StateGraph(EnsembleState)
-
-    graph.add_node("gen_structs", run_mlip_structure_generation)
-    graph.add_node("mlip_sp", run_mlip_sp)
-    graph.add_node("select_uncertain_configs", run_config_uncertainty_selection)
-
-    graph.add_edge(START, "gen_structs")
-    graph.add_edge("gen_structs", "mlip_sp")
-    graph.add_edge("mlip_sp", "select_uncertain_configs")
-    graph.add_edge("select_uncertain_configs", END)
-
-    return graph.compile()
-
-
 def execute_dft_single_point_block():
     """
     Workflow to prepare, run, postprocess DFT single-point calculations.
@@ -92,9 +73,10 @@ def execute_initial_basin_pathsampling_md_block():
 
     graph = StateGraph(EnsembleState)
     graph.add_node("apply_and_run_basin", run_apply_basin_constraints)
-    graph.add_node("check_config_labels", run_topology_relabel)
+    graph.add_node("check_md_config_labels", run_topology_relabel)
     graph.add_node("switch_to_opt", switch_to_opt_generation)
     graph.add_node("run_optimisation", run_mlip_structure_generation)
+    graph.add_node("check_opt_config_labels", run_topology_relabel)
     graph.add_node("basin_collapse", run_rematch_basin_collapse)
     graph.add_node("switch_to_pathmd", switch_to_pathmd_generation)
     graph.add_node("gen_and_run_neb", run_generate_neb_pairs)
@@ -103,10 +85,11 @@ def execute_initial_basin_pathsampling_md_block():
     graph.add_node("select_configs", run_config_fps_selection)
 
     graph.add_edge(START, "apply_and_run_basin")
-    graph.add_edge("apply_and_run_basin", "check_config_labels")
-    graph.add_edge("check_config_labels", "switch_to_opt")
+    graph.add_edge("apply_and_run_basin", "check_md_config_labels")
+    graph.add_edge("check_md_config_labels", "switch_to_opt")
     graph.add_edge("switch_to_opt", "run_optimisation")
-    graph.add_edge("run_optimisation", "basin_collapse")
+    graph.add_edge("run_optimisation", "check_opt_config_labels")
+    graph.add_edge("check_opt_config_labels", "basin_collapse")
     graph.add_edge("basin_collapse", "switch_to_pathmd")
     graph.add_edge("switch_to_pathmd", "gen_and_run_neb")
     graph.add_edge("gen_and_run_neb", "merge_configs")
