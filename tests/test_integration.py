@@ -87,6 +87,7 @@ def test_execute_dft_single_point_block_integration(real_data_setup):
     rng = np.random.default_rng()
     for at in atoms:
         at.arrays["MACE_forces"] = rng.random((len(at), 3))
+        at.arrays["DFT_forces"] = rng.random((len(at), 3))
         at.info["DFT_energy"] = 0.0
     write(state["configs"][0], atoms)
 
