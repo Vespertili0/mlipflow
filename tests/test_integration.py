@@ -115,8 +115,8 @@ def test_execute_dft_single_point_block_integration(real_data_setup):
         assert Path(test_file).exists()
 
         # Verify filenames
-        assert "train_dft.xyz" in train_file
-        assert "test_dft.xyz" in test_file
+        assert "dft_train.xyz" in train_file
+        assert "dft_test.xyz" in test_file
 
         # Verify split happened
         train_atoms = read(train_file, ":")
