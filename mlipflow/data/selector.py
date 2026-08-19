@@ -147,9 +147,11 @@ class ConfigurationSelector:
 
         n_avail = at_descs.shape[1] - len(exclude_ind_list)
         if n_avail < num:
-            raise RuntimeError(
-                f"Asked for {num} configs but only {n_avail} are available"
+            logger.warning(
+                f"Asked for {num} configs but only {n_avail} are available. "
+                f"Adjusting requested number to {n_avail}!!!"
             )
+            num = n_avail
 
         min_distances = []
         max_similarity = 2.0

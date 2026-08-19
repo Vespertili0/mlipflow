@@ -19,6 +19,7 @@ from mlipflow.data.gmm import (
     torch_pca_dynamic,
     train_gmm,
 )
+from mlipflow.data.processing import check_maxforce_and_cleanarrays
 
 if TYPE_CHECKING:
     from mlipflow.strategies.mlip import MACEModel
@@ -28,7 +29,15 @@ logger = logging.getLogger(__name__)
 
 
 def split_configset_by_force_agreement(
-    in_file, out_file, pair_tuple, main_suffix="train", side_suffix="test"
+    in_file,
+    out_file,
+    pair_tuple,
+    main_suffix="train",
+    side_suffix="test",
+    clean_data: bool = True,
+    max_force: float = 12.0,
+    mlip_prefix: str = "MACE",
+    calc: str = "opt",
 ) -> None:
     """
     Split a ConfigSet into two parts based on force agreement between two force keys.
@@ -40,21 +49,38 @@ def split_configset_by_force_agreement(
 
     Parameters
     ----------
-    in_file : str
-        Input file containing atomic configurations.
-    out_file : str
-        Base name for output files.
+    in_file : str | list[Atoms] | ConfigSet
+        Input file or atomic configurations.
+    out_file : str | dict
+        Base name for output files or dict of output file paths.
     pair_tuple : tuple[str, str]
         Names of the two force arrays to compare, e.g. ('DFT', 'MACE').
     main_suffix : str, default='train'
         Suffix for the main split output file.
     side_suffix : str, default='test'
         Suffix for the side split output file.
+    clean_data : bool, default=True
+        If True, runs check_maxforce_and_cleanarrays prior to force MAE computation.
+    max_force : float, default=12.0
+        Maximum force threshold for filtering configurations when clean_data is True.
+    mlip_prefix : str, default='MACE'
+        MLIP prefix used for cleaning arrays when clean_data is True.
+    calc : str, default='opt'
+        Calculation context used for key cleaning when clean_data is True.
 
     """
     assert len(pair_tuple) == 2, "need two force keys to compare"
 
-    configs = atoms_to_list(ConfigSet(in_file))
+    if clean_data:
+        configs = check_maxforce_and_cleanarrays(
+            in_file=in_file,
+            out_file=None,
+            mlip_prefix=mlip_prefix,
+            calc=calc,
+            max_force=max_force,
+        )
+    else:
+        configs = atoms_to_list(ConfigSet(in_file))
     # get MAE for forces and rank
     force_mae = [
         np.mean(

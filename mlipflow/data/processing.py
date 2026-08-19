@@ -10,6 +10,7 @@ import numpy as np
 from ase.io import read, write
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.map import map as wfl_map
+from wfl.utils.misc import atoms_to_list
 
 from mlipflow.data import setup_logging
 
@@ -24,10 +25,8 @@ def update_training_data(
     training_xyz: str, add_xyz: str, out_file: str
 ) -> None:  # !!! modify to ConfigSet
     """Update training data by merging two XYZ files."""
-    new_training = read(training_xyz, ":")
-    new_training += read(add_xyz, ":")
     update_configset_tag(
-        new_training, out_file, {"data_type": "train"}, tag_type="info"
+        [training_xyz, add_xyz], out_file, {"data_type": "train"}, tag_type="info"
     )
 
 
@@ -36,17 +35,12 @@ def check_maxforce_and_cleanarrays(
     out_file: str | None = None,
     mlip_prefix: str = "MACE",
     calc: str = "opt",
-    max_force: float = 15.0,
+    max_force: float = 12.0,
 ) -> list[Atoms]:
     """Remove structures with forces exceeding threshold and rename energy/force keys.
     Also acts as a strict filter to drop configurations missing energy data.
     """
-    if isinstance(in_file, (str, Path)):
-        configs = read(str(in_file), ":")
-    elif isinstance(in_file, ConfigSet):
-        configs = list(in_file)
-    else:
-        configs = list(in_file)
+    configs = atoms_to_list(ConfigSet(in_file))
 
     keys = {"md": "md", "opt": "optimize"}
     calc_key = keys.get(calc, calc)

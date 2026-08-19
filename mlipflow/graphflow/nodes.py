@@ -90,6 +90,7 @@ class EnsembleState(TypedDict):
     structure_gen_strategy: NotRequired[StructureGenStrategy]
     calculation_kwargs: NotRequired[dict[str, Any]]
     original_configs: NotRequired[list[str]]
+    pre_collapsed_configs: NotRequired[list[str]]
     last_training_configs: NotRequired[list[str]]
 
 
@@ -129,9 +130,11 @@ def merge_configs(state: EnsembleState) -> EnsembleState:
     """Merge original and generated configurations."""
     logger.info("Merging original and generated configurations")
 
-    if not state.get("original_configs"):
-        logger.error("No original configurations provided in state")
-        raise ValueError("No original configurations provided in state")
+    if not state.get("original_configs") and not state.get("pre_collapsed_configs"):
+        logger.error("No original or pre-collapsed configurations provided in state")
+        raise ValueError(
+            "No original or pre-collapsed configurations provided in state"
+        )
 
     step_counter = state.get("step_counter", 1)
     current_iter = state.get("iteration", 0)
@@ -144,7 +147,11 @@ def merge_configs(state: EnsembleState) -> EnsembleState:
         logger.info("Valid merged configs output detected on disk. Skipping execution.")
         return {**state, "configs": [outfile_path], "step_counter": step_counter + 1}
 
-    merged = ConfigSet(state["original_configs"]) + ConfigSet(state["configs"])
+    if state.get("pre_collapsed_configs"):
+        logger.info("Merging pre-collapsed configs with generated configs")
+        merged = ConfigSet(state["pre_collapsed_configs"]) + ConfigSet(state["configs"])
+    else:
+        merged = ConfigSet(state["original_configs"]) + ConfigSet(state["configs"])
     _log_config_counts(merged, msg="after merging")
     OutputSpec(outfile_path).write(merged)
 
@@ -499,10 +506,10 @@ def assess_n_select(state: EnsembleState) -> EnsembleState:
     current_iter = state.get("iteration", 0)
 
     train_file = resolve_step_path(
-        step_suffix="train_dft", iteration=current_iter, step_counter=step_counter
+        step_suffix="dft_train", iteration=current_iter, step_counter=step_counter
     )
     test_file = resolve_step_path(
-        step_suffix="test_dft", iteration=current_iter, step_counter=step_counter
+        step_suffix="dft_test", iteration=current_iter, step_counter=step_counter
     )
 
     out_files = {main_suffix: train_file, side_suffix: test_file}
@@ -529,6 +536,7 @@ def assess_n_select(state: EnsembleState) -> EnsembleState:
             state["qchem_strategy"].qe_prefix,
             state["mlip_strategy"].mlip_prefix,
         ),
+        mlip_prefix=state["mlip_strategy"].mlip_prefix,
         main_suffix=main_suffix,
         side_suffix=side_suffix,
     )
@@ -899,42 +907,6 @@ def run_config_uncertainty_selection(state: EnsembleState) -> EnsembleState:
     return {**state, "configs": [selected_configs], "step_counter": step_counter + 1}
 
 
-# def run_gmm_relabel(state: EnsembleState) -> EnsembleState:
-#    """
-#    Run semi-supervised GMM re-labelling on configurations.
-#    """
-#    logger.info("Running semi-supervised GMM re-labelling...")
-#
-#    from mlipflow.data.semi_supervised_gmm import GMMLabelChecker
-#
-#    if not state.get('configs'):
-#        logger.error("No configurations provided in state")
-#        raise ValueError("No configurations provided in state")
-#
-#    if not state.get('last_training_configs'):
-#        logger.error("last_training_configs not found in state")
-#        raise ValueError("last_training_configs not found in state")
-#
-#    gmm_kwargs = state.get('calculation_kwargs', {}).get('gmm_relabel', {}).copy()
-#    device = gmm_kwargs.pop('device', 'cpu')
-#
-#    checker = GMMLabelChecker(
-#        train_file=state['last_training_configs'],
-#        pool_file=state['configs'],
-#        mlip_strategy=state['mlip_strategy'],
-#        device=device,
-#        **gmm_kwargs
-#    )
-#
-#    certain_configs, uncertain_configs, _ = checker.run()
-#
-#    out_file = 'relabelled_configs.xyz'
-#    OutputSpec(out_file).write(ConfigSet(certain_configs))
-#    OutputSpec('uncertain_configs.xyz').write(ConfigSet(uncertain_configs))
-#
-#    return {**state, 'configs': [out_file]}
-
-
 def run_topology_relabel(state: EnsembleState) -> EnsembleState:
     """
     Run topology-based re-labelling on configurations.
@@ -974,52 +946,6 @@ def run_topology_relabel(state: EnsembleState) -> EnsembleState:
     OutputSpec(unknown_file).write(ConfigSet(unknown_configs))
 
     return {**state, "configs": [out_file], "step_counter": step_counter + 1}
-
-
-# def validate_state(state: EnsembleState, required_keys: list[str]) -> None:
-#    """Validate state contains required keys with non-empty values"""
-#    missing = [key for key in required_keys if not state.get(key)]
-#    if missing:
-#        raise WorkflowError(f"Missing required state keys: {missing}", state)
-#
-#
-# def validate_workflow(workflow, initial_state: EnsembleState) -> None:
-#    """Validate workflow configuration and initial state"""
-#    # Validate nodes
-#    required_nodes = {'dft_sp', 'train_mace'}
-#    missing_nodes = required_nodes - set(workflow.nodes)
-#    if missing_nodes:
-#        raise ValueError(f"Missing required nodes: {missing_nodes}")
-#
-#    # Validate initial state
-#    validate_state(initial_state, ['configs', 'qchem_strategy', 'mlip_strategy'])
-
-
-# def evalute_mlip_error(state: EnsembleState) -> EnsembleState:
-#    """
-#    Evaluate MLIP error against DFT reference data.
-#
-#    Args:
-#        state (EnsembleState): Current workflow state
-#    Returns:
-#        EnsembleState: Updated workflow state
-#    Raises:
-#        KeyError: If required state keys are missing
-#        ValueError: If configs list is empty
-#    """
-#    if not state.get('configs'):
-#        raise ValueError("No configurations provided in state")
-#
-#    try:
-#        calculate_mlip_error(
-#            in_configs=state['configs'],
-#            out_file='error_analysis.xyz',
-#            calc_property_prefix=state['mlip_strategy'].mlip_prefix,
-#            fig_dir='.'
-#            )
-#    except Exception as e:
-#        logger.error(f"MLIP error evaluation failed: {str(e)}")
-#        raise RuntimeError(f"MLIP error evaluation failed: {str(e)}")
 
 
 def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
@@ -1136,21 +1062,12 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
         len(collapsed_configs),
     )
 
-    return {**state, "configs": [out_file], "step_counter": step_counter + 1}
-
-
-# def clean_dft_data(state: EnsembleState) -> EnsembleState:
-#    """Clean DFT data by removing unnecessary info and standardizing keys.
-#
-#    Args:
-#        state (EnsembleState): Current workflow state
-#    Returns:
-#        EnsembleState: Updated workflow state
-#    Raises:
-#        KeyError: If required state keys are missing
-#        ValueError: If configs list is empty
-#    """
-#    check_maxforce_and_cleanarrays
+    return {
+        **state,
+        "pre_collapsed_configs": state.get("configs", []),
+        "configs": [out_file],
+        "step_counter": step_counter + 1,
+    }
 
 
 def analyse_neb_pathways(state: EnsembleState) -> EnsembleState:

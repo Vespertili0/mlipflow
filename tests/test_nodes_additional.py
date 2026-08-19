@@ -23,7 +23,8 @@ def test_merge_configs_value_error():
     """Test merge_configs raises ValueError if original_configs is missing."""
     state = EnsembleState(configs=["c1.xyz"])
     with pytest.raises(
-        ValueError, match="No original configurations provided in state"
+        ValueError,
+        match="No original or pre-collapsed configurations provided in state",
     ):
         merge_configs(state)
 

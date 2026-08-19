@@ -140,9 +140,55 @@ def test_execute_initial_basin_pathsampling_md_block(tmp_path):
             OutputSpec(out_file).write(ConfigSet(state["configs"]))
             return {**state, "configs": [out_file], "step_counter": step_counter + 1}
 
-        with patch(
-            "mlipflow.graphflow.graphs.run_rematch_basin_collapse",
-            side_effect=mock_rematch_basin_collapse,
+        def mock_apply_basin_constraints(state):
+            from wfl.configset import ConfigSet, OutputSpec
+
+            from mlipflow.utils.path_factory import resolve_step_path
+
+            step_counter = state.get("step_counter", 1)
+            current_iter = state.get("iteration", 0)
+            out_file = resolve_step_path(
+                step_suffix="basin_md",
+                iteration=current_iter,
+                step_counter=step_counter,
+            )
+            OutputSpec(out_file).write(ConfigSet(state["configs"]))
+            return {**state, "configs": [out_file], "step_counter": step_counter + 1}
+
+        def mock_generate_neb_pairs(state):
+            from wfl.configset import ConfigSet, OutputSpec
+
+            from mlipflow.utils.path_factory import resolve_step_path
+
+            step_counter = state.get("step_counter", 1)
+            current_iter = state.get("iteration", 0)
+
+            original_configs = state["configs"]
+
+            out_file = resolve_step_path(
+                step_suffix="neb_md", iteration=current_iter, step_counter=step_counter
+            )
+            OutputSpec(out_file).write(ConfigSet(state["configs"]))
+            return {
+                **state,
+                "configs": [out_file],
+                "original_configs": original_configs,
+                "step_counter": step_counter + 1,
+            }
+
+        with (
+            patch(
+                "mlipflow.graphflow.graphs.run_rematch_basin_collapse",
+                side_effect=mock_rematch_basin_collapse,
+            ),
+            patch(
+                "mlipflow.graphflow.graphs.run_apply_basin_constraints",
+                side_effect=mock_apply_basin_constraints,
+            ),
+            patch(
+                "mlipflow.graphflow.graphs.run_generate_neb_pairs",
+                side_effect=mock_generate_neb_pairs,
+            ),
         ):
             result = execute_initial_basin_pathsampling_md_block().invoke(state)
 
