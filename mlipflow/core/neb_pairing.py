@@ -285,6 +285,7 @@ def create_similarity_matrix(mols1, descriptor_string, atom_slice=None, mols2=No
     soaps1 = [desc.calc_descriptor(m[atom_slice]).flatten() for m in mols1]
     X1 = np.array(soaps1)
     norms1 = np.linalg.norm(X1, axis=1, keepdims=True)
+    norms1 = np.clip(norms1, a_min=1e-12, a_max=None)
     X1_norm = X1 / norms1
 
     if mols2 is None:
@@ -293,6 +294,7 @@ def create_similarity_matrix(mols1, descriptor_string, atom_slice=None, mols2=No
     soaps2 = [desc.calc_descriptor(m[atom_slice]).flatten() for m in mols2]
     X2 = np.array(soaps2)
     norms2 = np.linalg.norm(X2, axis=1, keepdims=True)
+    norms2 = np.clip(norms2, a_min=1e-12, a_max=None)
     X2_norm = X2 / norms2
 
     return np.dot(X1_norm, X2_norm.T)

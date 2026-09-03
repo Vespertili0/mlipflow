@@ -183,12 +183,12 @@ def subselect_from_traj(traj, subselect=None):
     if subselect is None:
         return traj
     elif subselect == "last":
-        return traj[-1]
+        return [traj[-1]]
     elif subselect == "last_converged":
         return (
-            traj[-1]
-            if (traj[-1].info["optimize_config_type"] == "optimize_last_converged")
-            else None
+            [traj[-1]]
+            if (traj[-1].info.get("optimize_last_status") == "converged")
+            else []
         )
 
     raise RuntimeError(

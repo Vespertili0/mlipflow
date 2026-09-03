@@ -326,6 +326,8 @@ def _get_temperature(temperature_use, temperature_tau, steps):
             except TypeError:
                 # number into a list
                 temperature_use = [temperature_use]
+            else:
+                temperature_use = [temperature_use]
         if not isinstance(temperature_use[0], dict):
             # create a stage dict from a constant or ramp
             t_stage_data = temperature_use

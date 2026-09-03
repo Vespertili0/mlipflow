@@ -760,6 +760,7 @@ def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
     logger.info("Generating NEB pairs for structure generation")
     neb_structure_gen_params = None
     neb_mlip_gen = None
+    neb_config = {}
 
     if not state.get("configs"):
         logger.error("No configurations provided in state")
