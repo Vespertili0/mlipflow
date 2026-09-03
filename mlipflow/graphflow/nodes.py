@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -92,6 +93,20 @@ class EnsembleState(TypedDict):
     original_configs: NotRequired[list[str]]
     pre_collapsed_configs: NotRequired[list[str]]
     last_training_configs: NotRequired[list[str]]
+
+
+class AnalysisState(TypedDict):
+    """
+    State dictionary for the detached NEB analysis workflow.
+    """
+
+    configs: list[str]  # Paths to the raw "04_neb_opt.xyz"-like files
+    iteration: int  # Current AL iteration index
+    model_name: str  # Base model name, e.g. "pot"
+    model_dir: str  # Directory where model files are written
+    qchem_strategy: QChemStrategy  # Required by run_chunked_qe_sp
+    calculation_kwargs: NotRequired[dict[str, Any]]
+    step_counter: NotRequired[int]
 
 
 @dataclass
@@ -745,6 +760,7 @@ def run_generate_neb_pairs(state: EnsembleState) -> EnsembleState:
     logger.info("Generating NEB pairs for structure generation")
     neb_structure_gen_params = None
     neb_mlip_gen = None
+    neb_config = {}
 
     if not state.get("configs"):
         logger.error("No configurations provided in state")
@@ -1070,7 +1086,107 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
     }
 
 
-def analyse_neb_pathways(state: EnsembleState) -> EnsembleState:
+def run_neb_dft_sp(state: AnalysisState) -> AnalysisState:
+    """Run DFT single-point calculations directly on NEB pathways."""
+    outfile = resolve_step_path(
+        step_suffix="neb_dft",
+        iteration=state["iteration"],
+        step_counter=state.get("step_counter", 1),
+        workdir="iterations/neb_analysis",
+    )
+    dft_kwargs = state.get("calculation_kwargs", {}).get("dft_scf", {})
+    run_chunked_qe_sp(
+        in_file=state["configs"],
+        out_file=[outfile],
+        qchem_strategy=state["qchem_strategy"],
+        **dft_kwargs,
+    )
+    return {
+        **state,
+        "configs": [outfile],
+        "step_counter": state.get("step_counter", 1) + 1,
+    }
+
+
+def wait_for_model_training(state: AnalysisState) -> AnalysisState:
+    """Wait for the MACE model to be trained in the main loop."""
+    target_model = (
+        Path(state["model_dir"]) / f"{state['model_name']}_v{state['iteration']}.model"
+    )
+    timeout = (
+        state.get("calculation_kwargs", {})
+        .get("neb_analysis", {})
+        .get("wait_timeout_s", 43200)
+    )  # 12h default
+    poll_interval = 60  # seconds
+
+    logger.info("Waiting for model file: %s", target_model)
+    elapsed = 0
+    while not target_model.exists():
+        if elapsed >= timeout:
+            raise TimeoutError(
+                f"Model file {target_model} did not appear after {timeout}s."
+            )
+        time.sleep(poll_interval)
+        elapsed += poll_interval
+    logger.info("Model file detected after %ds: %s", elapsed, target_model)
+    return state
+
+
+def run_historical_mlip_sps(state: AnalysisState) -> AnalysisState:
+    """Run SPs for all historically trained MLIPs on the NEB pathways."""
+    from mlipflow.strategies.mlip import MACEModel
+
+    model_dir = Path(state["model_dir"])
+    base_name = state["model_name"]
+    model_files = sorted(model_dir.glob(f"{base_name}_v*.model"))
+
+    prefixes = ["DFT"]
+    current_configs = state["configs"]
+
+    for model_file in model_files:
+        # e.g. "pot_v1.model" -> prefix "MACE_v1"
+        version_tag = model_file.stem.removeprefix(f"{base_name}_")  # "v1"
+        prefix = f"MACE_{version_tag}_"
+
+        mace = MACEModel(mlip_name=model_file.stem, run_mode="local")
+        mace.model_file = str(model_file)
+
+        outfile = resolve_step_path(
+            step_suffix=f"neb_mlip_{version_tag}",
+            iteration=state["iteration"],
+            step_counter=state.get("step_counter", 2),
+            workdir="iterations/neb_analysis",
+        )
+        run_single_point(
+            in_file=current_configs,
+            out_file=[outfile],
+            output_prefix=prefix,
+            calculator=mace.get_calculator(
+                job_name=f"NEB_SP_{version_tag}", dispersion=True
+            ),
+            remote_info=None,  # always local
+        )
+        current_configs = [outfile]
+        prefixes.append(f"MACE_{version_tag}")
+
+    # Inject dynamic prefixes into kwargs for the analysis node
+    updated_kwargs = dict(state.get("calculation_kwargs", {}))
+    neb_analysis_kwargs = dict(updated_kwargs.get("neb_analysis", {}))
+    neb_analysis_kwargs["prefixes"] = tuple(
+        prefixes
+    )  # e.g. ("DFT", "MACE_v1", "MACE_v2")
+    updated_kwargs["neb_analysis"] = neb_analysis_kwargs
+
+    return {
+        **state,
+        "configs": current_configs,
+        "calculation_kwargs": updated_kwargs,
+        "step_counter": state.get("step_counter", 2) + len(model_files),
+    }
+
+
+def analyse_neb_pathways(state: EnsembleState | AnalysisState) -> dict:
     """Execute NEB trajectory analysis and write figures to the iteration directory.
 
     Parses configuration files in ``state["configs"]``, runs :class:`NEBAnalysis`,

@@ -238,6 +238,7 @@ class GAPModel(MLIPStrategy):
             run_mode (str): Run mode ('local' or 'remote'). Defaults to 'remote'.
         """
         super().__init__(run_mode=run_mode, mlip_file=mlip_file)
+        self.mlip_file = mlip_file
         self.mlip_prefix = "GAP"
 
         # defining GAP-specific variables

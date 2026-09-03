@@ -54,12 +54,12 @@ def clean_up(key: str = "_chunk_") -> None:
     Returns:
         None
     """
-    try:
-        run_dirs = [rd for rd in Path().iterdir() if key in rd.name]
-        for rd in run_dirs:
+    run_dirs = [rd for rd in Path().iterdir() if key in rd.name]
+    for rd in run_dirs:
+        try:
             if rd.is_dir():
                 shutil.rmtree(rd)
             elif rd.is_file():
                 rd.unlink()
-    except Exception as e:
-        raise RuntimeError(f"Error removing {rd}: {e}") from e
+        except Exception as e:
+            raise RuntimeError(f"Error removing {rd}: {e}") from e
