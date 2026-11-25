@@ -5,7 +5,7 @@ import os
 from ase.calculators.mixing import SumCalculator
 from mace.calculators import MACECalculator
 
-from mlipflow.strategies.mlip import MACEModel
+from mlipflow.strategies.mlip import GAPModel, MACEModel
 
 
 def test_mace_model_initialization():
@@ -86,3 +86,11 @@ def test_mace_model_set_model_name_synchronizes_paths():
     # model_file must remain writable for historical evaluation workflows
     mace.model_file = "/tmp/model_v3.model"
     assert mace.model_file == "/tmp/model_v3.model"
+
+
+def test_gap_model_initialization():
+    """Verify GAPModel initializes cleanly via MLIPStrategy.__init__(mlip_name=...)."""
+    gap = GAPModel(mlip_file="gap_pot.xml", run_mode="local")
+    assert gap.mlip_name == "gap_pot.xml"
+    assert gap.mlip_file == "gap_pot.xml"
+    assert gap.run_mode == "local"

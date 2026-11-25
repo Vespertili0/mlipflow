@@ -277,7 +277,8 @@ class GAPModel(MLIPStrategy):
             mlip_file (str): File name of the GAP model.
             run_mode (str): Run mode ('local' or 'remote'). Defaults to 'remote'.
         """
-        super().__init__(run_mode=run_mode, mlip_file=mlip_file)
+        super().__init__(run_mode=run_mode, mlip_name=mlip_file)
+        self.mlip_file = mlip_file
         self.mlip_prefix = "GAP"
 
         # defining GAP-specific variables

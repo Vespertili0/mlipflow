@@ -588,8 +588,14 @@ def run_mace_fit(state: EnsembleState) -> EnsembleState:
     step_counter = state.get("step_counter", 1)
     result = {**state, "outfile": None, "step_counter": step_counter + 1}
     model_file = getattr(state["mlip_strategy"], "model_file", None)
-    if model_file is not None:
+    if (
+        model_file is not None
+        and Path(model_file).exists()
+        and Path(model_file).stat().st_size > 0
+    ):
         result["model_file"] = model_file
+    else:
+        result.pop("model_file", None)
     return result
 
 

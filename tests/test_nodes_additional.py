@@ -16,6 +16,7 @@ from mlipflow.graphflow.nodes import (
     run_dft_sp,
     run_dft_sp_chunked,
     run_generate_neb_pairs,
+    run_mace_fit,
     run_mlip_sp,
     run_mlip_structure_generation,
     run_rattle_perturbation,
@@ -451,3 +452,38 @@ def test_merge_configs_includes_unknown_configs_and_handles_empty(tmp_path):
         assert len(merged_empty_atoms) == 3
     finally:
         os.chdir(cwd)
+
+
+def test_run_mace_fit_requires_nonempty_model_file(tmp_path):
+    """Verify run_mace_fit only sets result['model_file'] when a non-empty model exists."""
+    model_path = tmp_path / "pot_v0.model"
+    mock_strategy = MagicMock()
+    mock_strategy.model_file = str(model_path)
+
+    # Missing model file after failed fit -> model_file must not be set
+    state_missing = EnsembleState(
+        configs=["train.xyz"],
+        outfile=["test.xyz"],
+        mlip_strategy=mock_strategy,
+        model_file="stale.model",
+    )
+    res_missing = run_mace_fit(state_missing)
+    assert "model_file" not in res_missing
+
+    # Empty 0-byte model file -> model_file must not be set
+    model_path.write_text("", encoding="utf-8")
+    res_empty = run_mace_fit(
+        EnsembleState(
+            configs=["train.xyz"], outfile=["test.xyz"], mlip_strategy=mock_strategy
+        )
+    )
+    assert "model_file" not in res_empty
+
+    # Non-empty model file -> model_file is propagated
+    model_path.write_text("trained weights", encoding="utf-8")
+    res_ok = run_mace_fit(
+        EnsembleState(
+            configs=["train.xyz"], outfile=["test.xyz"], mlip_strategy=mock_strategy
+        )
+    )
+    assert res_ok["model_file"] == str(model_path)

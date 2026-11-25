@@ -142,6 +142,8 @@ def test_train_new_mlip_model(mock_block):
     assert updated_strategy.model_file == "pot_v3.model"
     assert updated_strategy.uq_file == "pot_v3_llpr.pt"
     mock_invoke.invoke.assert_called_once()
+    invoked_state = mock_invoke.invoke.call_args.args[0]
+    assert invoked_state["outfile"] == expected_test
 
 
 @patch("mlipflow.graphflow.activelearner.SqliteSaver.from_conn_string")
@@ -241,8 +243,11 @@ def test_multi_iteration_active_learning_dry_run_with_emt(tmp_path):
             "step_counter": es.get("step_counter", 1) + 1,
         }
 
+    fitted_test_sets: list[list[str]] = []
+
     def _fake_fit_new_model(self, in_file, test_configs, **_kwargs):
         fitted_models.append((self.mlip_name, self.model_file, self.uq_file))
+        fitted_test_sets.append(list(test_configs))
         Path(self.model_file).write_text("dummy model", encoding="utf-8")
 
     mock_gen_block = MagicMock()
@@ -306,11 +311,16 @@ def test_multi_iteration_active_learning_dry_run_with_emt(tmp_path):
                 )
                 assert set(state["test_data"]).isdisjoint(set(state["training_data"]))
 
-        # Verify model progression across fit calls
+        # Verify model progression and accumulated test_configs across fit calls
         assert fitted_models == [
             ("pot_v0", "pot_v0.model", "pot_v0_llpr.pt"),
             ("pot_v1", "pot_v1.model", "pot_v1_llpr.pt"),
             ("pot_v2", "pot_v2.model", "pot_v2_llpr.pt"),
+        ]
+        assert fitted_test_sets == [
+            state["test_data"][:1],
+            state["test_data"][:2],
+            state["test_data"][:3],
         ]
 
         # Verify iterations 1 and 2 saw the updated model_file & last_training_configs

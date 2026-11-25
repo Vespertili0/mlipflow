@@ -109,8 +109,9 @@ def train_new_mlip_model(state: ActiveLearningFlow) -> ActiveLearningFlow:
     else:
         strategy.mlip_name = versioned_name
 
-    # Pass full accumulated training set and record it for subsequent UQ iterations
+    # Pass full accumulated training/test sets and record training configs for UQ
     ensemble_state["configs"] = list(new_training_data)
+    ensemble_state["outfile"] = list(new_test_data)
     ensemble_state["last_training_configs"] = list(new_training_data)
 
     subgraph_out = execute_mlip_training_block().invoke(ensemble_state)
