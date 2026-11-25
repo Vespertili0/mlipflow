@@ -29,12 +29,17 @@ def test_propagate_iteration():
         "test_data": [],
         "iteration": 3,
         "model_name": "pot",
-        "ensemble_state": {"configs": ["c1.xyz"]},
+        "ensemble_state": {
+            "configs": ["c1.xyz"],
+            "iteration": 2,
+            "unknown_configs": ["stale_unknown.xyz"],
+        },
     }
 
     es = _propagate_iteration(state)
     assert es["iteration"] == 3
     assert es["configs"] == ["c1.xyz"]
+    assert "unknown_configs" not in es
     # Verify deep copy was made
     assert es is not state["ensemble_state"]
 
