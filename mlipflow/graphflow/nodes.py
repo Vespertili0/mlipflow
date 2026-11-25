@@ -20,10 +20,7 @@ from mlipflow.data.processing import (
     clean_configset_data,
     update_configset_tag,
 )
-from mlipflow.data.selection import (
-    select_by_uncertainty,
-    split_configset_by_force_agreement,
-)
+from mlipflow.data.selection import select_by_uncertainty, split_configset
 from mlipflow.data.selector import ConfigurationSelector
 from mlipflow.strategies.structure_generators import (
     MDGen,
@@ -60,6 +57,11 @@ class EnsembleState(TypedDict):
         calculation_kwargs (NotRequired[dict[str, Any]]): Dictionary containing parameters for various calculation steps.
             Expected keys:
             - 'dft_scf': kwargs for DFT single point calculations (e.g. kpts, ecut_eV)
+            - 'dft_split': kwargs for DFT train/test splitting in assess_n_select
+                - 'split_mode': 'stratified_random' (default) or 'random'
+                - 'test_fraction': held-out test fraction in (0, 1) (default: 0.2)
+                - 'seed': deterministic RNG seed (default: 42)
+                - 'stratify_key': atoms.info key for stratification (default: 'species')
             - 'mlip_sp': kwargs for MLIP single point calculations (e.g. dispersion)
             - 'mlip_gen': kwargs for MLIP structure generation (e.g. dispersion)
             - 'initial_sampling': kwargs for initial sampling nodes
@@ -93,6 +95,7 @@ class EnsembleState(TypedDict):
     original_configs: NotRequired[list[str]]
     pre_collapsed_configs: NotRequired[list[str]]
     last_training_configs: NotRequired[list[str]]
+    model_file: NotRequired[str]
 
 
 class AnalysisState(TypedDict):
@@ -544,16 +547,20 @@ def assess_n_select(state: EnsembleState) -> EnsembleState:
             "step_counter": step_counter + 1,
         }
 
-    split_configset_by_force_agreement(
+    split_kwargs = state.get("calculation_kwargs", {}).get("dft_split", {})
+    split_configset(
         in_file=configs,
         out_file=out_files,
-        pair_tuple=(
-            state["qchem_strategy"].qe_prefix,
-            state["mlip_strategy"].mlip_prefix,
-        ),
-        mlip_prefix=state["mlip_strategy"].mlip_prefix,
         main_suffix=main_suffix,
         side_suffix=side_suffix,
+        split_mode=split_kwargs.get("split_mode", "stratified_random"),
+        test_fraction=split_kwargs.get("test_fraction", 0.2),
+        seed=split_kwargs.get("seed", 42),
+        stratify_key=split_kwargs.get("stratify_key", "species"),
+        clean_data=split_kwargs.get("clean_data", True),
+        max_force=split_kwargs.get("max_force", 12.0),
+        mlip_prefix=state["mlip_strategy"].mlip_prefix,
+        calc=split_kwargs.get("calc", "opt"),
     )
 
     return {
@@ -572,7 +579,11 @@ def run_mace_fit(state: EnsembleState) -> EnsembleState:
         in_file=configs, test_configs=test_configs, seed=123, restart=False
     )
     step_counter = state.get("step_counter", 1)
-    return {**state, "outfile": None, "step_counter": step_counter + 1}
+    result = {**state, "outfile": None, "step_counter": step_counter + 1}
+    model_file = getattr(state["mlip_strategy"], "model_file", None)
+    if model_file is not None:
+        result["model_file"] = model_file
+    return result
 
 
 def _run_structure_generation_logic(
