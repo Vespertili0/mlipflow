@@ -128,3 +128,35 @@ def test_execute_dft_single_point_block_integration(real_data_setup):
 
     finally:
         os.chdir(cwd)
+
+
+def test_assess_n_select_dft_split_kwargs(real_data_setup):
+    """Verify assess_n_select exposes split_mode, test_fraction, and seed via calculation_kwargs['dft_split']."""
+    state, tmp_path = real_data_setup
+    atoms = read(state["configs"][0], ":")
+    for idx, at in enumerate(atoms):
+        at.info["DFT_energy"] = 0.0
+        at.info["frame_id"] = idx
+    write(state["configs"][0], atoms)
+
+    dft_out_dir = tmp_path / "iterations" / "iter_0"
+    dft_out_dir.mkdir(parents=True, exist_ok=True)
+    write(str(dft_out_dir / "01_dft_sp.xyz"), atoms)
+
+    state["calculation_kwargs"] = {
+        "dft_split": {"split_mode": "random", "test_fraction": 0.3, "seed": 7}
+    }
+
+    app = execute_dft_single_point_block()
+    cwd = Path.cwd()
+    os.chdir(tmp_path)
+    try:
+        final_state = app.invoke(state)
+        train_atoms = read(final_state["configs"][0], ":")
+        test_atoms = read(final_state["outfile"][0], ":")
+
+        # round(17 * 0.3) == 5 test frames, 12 train frames
+        assert len(test_atoms) == 5
+        assert len(train_atoms) == 12
+    finally:
+        os.chdir(cwd)
