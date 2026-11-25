@@ -63,6 +63,7 @@ def _propagate_iteration(state: ActiveLearningFlow) -> EnsembleState:
     if es.get("iteration") != current_iter:
         es["step_counter"] = 1
         es.pop("model_file", None)
+        es.pop("unknown_configs", None)
     es["iteration"] = current_iter
     return es
 
