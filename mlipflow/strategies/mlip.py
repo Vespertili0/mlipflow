@@ -43,6 +43,16 @@ class MLIPStrategy(ABC):
         self.run_mode = run_mode
         self.mlip_name = mlip_name
 
+    def set_model_name(self, mlip_name: str) -> None:
+        """Update the model name for this MLIP strategy.
+
+        Parameters
+        ----------
+        mlip_name : str
+            New model name identifier.
+        """
+        self.mlip_name = mlip_name
+
     @abstractmethod
     def get_calculator(self, job_name: str) -> tuple:
         """
@@ -72,28 +82,58 @@ class MACEModel(MLIPStrategy):
     """
     MACE strategy class for MLIPFlow. It defines the interface for MACE implemented in the MLIPFlow package.
 
-    Attributes:
-        mlip_file (str): File name of the MACE model.
-        run_mode (str): 'local' or 'remote'. If 'local', the MACE model is run locally in current job.
-                        If 'remote', the MACE model is submitted to run via wfl-RemoteInfo object.
-
+    Attributes
+    ----------
+    model_file : str
+        File name of the MACE model.
+    uq_file : str or None
+        File name of the serialized LLPR uncertainty artifact associated with this model.
+    run_mode : str
+        'local' or 'remote'. If 'local', the MACE model is run locally in current job.
+        If 'remote', the MACE model is submitted to run via wfl-RemoteInfo object.
     """
 
     def __init__(
-        self, mlip_name: str, mace_config: str | None = None, run_mode: str = "remote"
+        self,
+        mlip_name: str,
+        mace_config: str | None = None,
+        run_mode: str = "remote",
+        uq_file: str | None = None,
     ) -> None:
-        """
-        Initialise the MACEModel.
+        """Initialise the MACEModel.
 
-        Args:
-            mlip_name (str): Name of the MLIP.
-            mace_config (str | None): Path to MACE configuration file. Defaults to None.
-            run_mode (str): Run mode ('local' or 'remote'). Defaults to 'remote'.
+        Parameters
+        ----------
+        mlip_name : str
+            Name of the MLIP.
+        mace_config : str or None, optional
+            Path to MACE configuration file. Defaults to None.
+        run_mode : str, optional
+            Run mode ('local' or 'remote'). Defaults to 'remote'.
+        uq_file : str or None, optional
+            Path to the serialized UQ artifact. Defaults to ``f"{mlip_name}_llpr.pt"``.
         """
         super().__init__(run_mode=run_mode, mlip_name=mlip_name)
         self.mlip_prefix = "MACE_"
         self.mace_config = mace_config
         self.model_file = f"{mlip_name}.model"
+        self.uq_file: str | None = (
+            uq_file if uq_file is not None else f"{mlip_name}_llpr.pt"
+        )
+
+    def set_model_name(self, mlip_name: str, uq_file: str | None = None) -> None:
+        """Update model name and synchronize ``model_file`` and ``uq_file``.
+
+        Parameters
+        ----------
+        mlip_name : str
+            New model name identifier (e.g. ``"model_v1"``).
+        uq_file : str or None, optional
+            Explicit UQ artifact path. If ``None``, defaults to ``f"{mlip_name}_llpr.pt"``.
+        """
+        self.mlip_name = mlip_name
+        self.model_file = f"{mlip_name}.model"
+        self.uq_file = uq_file if uq_file is not None else f"{mlip_name}_llpr.pt"
 
     def get_calculator(
         self,
@@ -238,6 +278,7 @@ class GAPModel(MLIPStrategy):
             run_mode (str): Run mode ('local' or 'remote'). Defaults to 'remote'.
         """
         super().__init__(run_mode=run_mode, mlip_file=mlip_file)
+        self.mlip_file = mlip_file
         self.mlip_prefix = "GAP"
 
         # defining GAP-specific variables

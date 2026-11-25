@@ -6,7 +6,9 @@ from langgraph.graph import END, START, StateGraph
 
 from mlipflow.data import setup_logging
 from mlipflow.graphflow.nodes import (
+    AnalysisState,
     EnsembleState,
+    analyse_neb_pathways,
     assess_n_select,
     merge_configs,
     run_apply_basin_constraints,
@@ -14,14 +16,18 @@ from mlipflow.graphflow.nodes import (
     run_config_uncertainty_selection,
     run_dft_sp_chunked,
     run_generate_neb_pairs,
+    run_historical_mlip_sps,
     run_mace_fit,
     run_mlip_sp,
     run_mlip_structure_generation,
+    run_neb_dft_sp,
+    run_rattle_perturbation,
     run_rematch_basin_collapse,
     run_topology_relabel,
     switch_to_neb_generation,
     switch_to_opt_generation,
     switch_to_pathmd_generation,
+    wait_for_model_training,
 )
 
 setup_logging()
@@ -103,11 +109,12 @@ def execute_initial_basin_pathsampling_md_block():
 def execute_opt_neb_combination_block():
     """
     Workflow for Opt-NEB Combination.
-    Generates structures via OPT followed by NEB and selects by uncertainty.
+    Perturbs active atoms via rattle, relaxes via OPT, runs NEB, and selects by uncertainty.
     """
     logger.info("...Executing opt-neb combination block...")
     graph = StateGraph(EnsembleState)
 
+    graph.add_node("rattle_perturb", run_rattle_perturbation)
     graph.add_node("run_optimisation", run_mlip_structure_generation)
     graph.add_node("check_config_labels", run_topology_relabel)
     graph.add_node("basin_collapse", run_rematch_basin_collapse)
@@ -117,7 +124,8 @@ def execute_opt_neb_combination_block():
     graph.add_node("mlip_sp", run_mlip_sp)
     graph.add_node("select_configs", run_config_uncertainty_selection)
 
-    graph.add_edge(START, "run_optimisation")
+    graph.add_edge(START, "rattle_perturb")
+    graph.add_edge("rattle_perturb", "run_optimisation")
     graph.add_edge("run_optimisation", "check_config_labels")
     graph.add_edge("check_config_labels", "basin_collapse")
     graph.add_edge("basin_collapse", "switch_to_neb")
@@ -127,4 +135,27 @@ def execute_opt_neb_combination_block():
     graph.add_edge("mlip_sp", "select_configs")
     graph.add_edge("select_configs", END)
 
+    return graph.compile()
+
+
+def execute_neb_dft_block():
+    graph = StateGraph(AnalysisState)
+    graph.add_node("neb_dft", run_neb_dft_sp)
+    graph.add_edge(START, "neb_dft")
+    graph.add_edge("neb_dft", END)
+    return graph.compile()
+
+
+def execute_neb_analysis_block():
+    graph = StateGraph(AnalysisState)
+    graph.add_node("run_neb_dft", run_neb_dft_sp)
+    graph.add_node("wait_for_model", wait_for_model_training)
+    graph.add_node("pool_mlips", run_historical_mlip_sps)
+    graph.add_node("analyse", analyse_neb_pathways)
+
+    graph.add_edge(START, "run_neb_dft")
+    graph.add_edge("run_neb_dft", "wait_for_model")
+    graph.add_edge("wait_for_model", "pool_mlips")
+    graph.add_edge("pool_mlips", "analyse")
+    graph.add_edge("analyse", END)
     return graph.compile()
