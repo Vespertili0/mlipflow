@@ -17,6 +17,7 @@ from mlipflow.graphflow.nodes import (
     run_mace_fit,
     run_mlip_sp,
     run_mlip_structure_generation,
+    run_rattle_perturbation,
     run_rematch_basin_collapse,
     run_topology_relabel,
     switch_to_neb_generation,
@@ -103,11 +104,12 @@ def execute_initial_basin_pathsampling_md_block():
 def execute_opt_neb_combination_block():
     """
     Workflow for Opt-NEB Combination.
-    Generates structures via OPT followed by NEB and selects by uncertainty.
+    Perturbs active atoms via rattle, relaxes via OPT, runs NEB, and selects by uncertainty.
     """
     logger.info("...Executing opt-neb combination block...")
     graph = StateGraph(EnsembleState)
 
+    graph.add_node("rattle_perturb", run_rattle_perturbation)
     graph.add_node("run_optimisation", run_mlip_structure_generation)
     graph.add_node("check_config_labels", run_topology_relabel)
     graph.add_node("basin_collapse", run_rematch_basin_collapse)
@@ -117,7 +119,8 @@ def execute_opt_neb_combination_block():
     graph.add_node("mlip_sp", run_mlip_sp)
     graph.add_node("select_configs", run_config_uncertainty_selection)
 
-    graph.add_edge(START, "run_optimisation")
+    graph.add_edge(START, "rattle_perturb")
+    graph.add_edge("rattle_perturb", "run_optimisation")
     graph.add_edge("run_optimisation", "check_config_labels")
     graph.add_edge("check_config_labels", "basin_collapse")
     graph.add_edge("basin_collapse", "switch_to_neb")

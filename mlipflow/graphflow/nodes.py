@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import copy
 import logging
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
+import numpy as np
 from typing_extensions import NotRequired
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.map import map as wfl_map
@@ -19,10 +21,7 @@ from mlipflow.data.processing import (
     clean_configset_data,
     update_configset_tag,
 )
-from mlipflow.data.selection import (
-    select_by_uncertainty,
-    split_configset_by_force_agreement,
-)
+from mlipflow.data.selection import select_by_uncertainty, split_configset
 from mlipflow.data.selector import ConfigurationSelector
 from mlipflow.strategies.structure_generators import (
     MDGen,
@@ -59,6 +58,16 @@ class EnsembleState(TypedDict):
         calculation_kwargs (NotRequired[dict[str, Any]]): Dictionary containing parameters for various calculation steps.
             Expected keys:
             - 'dft_scf': kwargs for DFT single point calculations (e.g. kpts, ecut_eV)
+            - 'dft_split': kwargs for DFT train/test splitting in assess_n_select
+                - 'split_mode': 'stratified_random' (default) or 'random'
+                - 'test_fraction': held-out test fraction in (0, 1) (default: 0.2)
+                - 'seed': deterministic RNG seed (default: 42)
+                - 'stratify_key': atoms.info key for stratification (default: 'species')
+            - 'thermal_perturb': kwargs for rattle perturbation before OPTGen
+                - 'sigma': Gaussian coordinate displacement std in Angstrom (default: 0.15)
+                - 'seed': deterministic RNG seed offset by iteration (default: 42)
+                - 'constraints': optional ASE constraints (falls back to initial_sampling.basin_constraints)
+                - 'atom_indices': optional slice/sequence restricting active rattled atoms
             - 'mlip_sp': kwargs for MLIP single point calculations (e.g. dispersion)
             - 'mlip_gen': kwargs for MLIP structure generation (e.g. dispersion)
             - 'initial_sampling': kwargs for initial sampling nodes
@@ -91,7 +100,9 @@ class EnsembleState(TypedDict):
     calculation_kwargs: NotRequired[dict[str, Any]]
     original_configs: NotRequired[list[str]]
     pre_collapsed_configs: NotRequired[list[str]]
+    unknown_configs: NotRequired[list[str]]
     last_training_configs: NotRequired[list[str]]
+    model_file: NotRequired[str]
 
 
 @dataclass
@@ -152,6 +163,20 @@ def merge_configs(state: EnsembleState) -> EnsembleState:
         merged = ConfigSet(state["pre_collapsed_configs"]) + ConfigSet(state["configs"])
     else:
         merged = ConfigSet(state["original_configs"]) + ConfigSet(state["configs"])
+
+    unknown_files = [
+        path
+        for path in (state.get("unknown_configs") or [])
+        if Path(path).exists()
+        and Path(path).stat().st_size > 0
+        and len(list(ConfigSet(path))) > 0
+    ]
+    if unknown_files:
+        logger.info(
+            "Merging unknown configurations from %d file(s)", len(unknown_files)
+        )
+        merged = merged + ConfigSet(unknown_files)
+
     _log_config_counts(merged, msg="after merging")
     OutputSpec(outfile_path).write(merged)
 
@@ -529,16 +554,20 @@ def assess_n_select(state: EnsembleState) -> EnsembleState:
             "step_counter": step_counter + 1,
         }
 
-    split_configset_by_force_agreement(
+    split_kwargs = state.get("calculation_kwargs", {}).get("dft_split", {})
+    split_configset(
         in_file=configs,
         out_file=out_files,
-        pair_tuple=(
-            state["qchem_strategy"].qe_prefix,
-            state["mlip_strategy"].mlip_prefix,
-        ),
-        mlip_prefix=state["mlip_strategy"].mlip_prefix,
         main_suffix=main_suffix,
         side_suffix=side_suffix,
+        split_mode=split_kwargs.get("split_mode", "stratified_random"),
+        test_fraction=split_kwargs.get("test_fraction", 0.2),
+        seed=split_kwargs.get("seed", 42),
+        stratify_key=split_kwargs.get("stratify_key", "species"),
+        clean_data=split_kwargs.get("clean_data", True),
+        max_force=split_kwargs.get("max_force", 12.0),
+        mlip_prefix=state["mlip_strategy"].mlip_prefix,
+        calc=split_kwargs.get("calc", "opt"),
     )
 
     return {
@@ -557,7 +586,17 @@ def run_mace_fit(state: EnsembleState) -> EnsembleState:
         in_file=configs, test_configs=test_configs, seed=123, restart=False
     )
     step_counter = state.get("step_counter", 1)
-    return {**state, "outfile": None, "step_counter": step_counter + 1}
+    result = {**state, "outfile": None, "step_counter": step_counter + 1}
+    model_file = getattr(state["mlip_strategy"], "model_file", None)
+    if (
+        model_file is not None
+        and Path(model_file).exists()
+        and Path(model_file).stat().st_size > 0
+    ):
+        result["model_file"] = model_file
+    else:
+        result.pop("model_file", None)
+    return result
 
 
 def _run_structure_generation_logic(
@@ -683,6 +722,116 @@ def _run_structure_generation_logic(
         "outfile": None,
         "step_counter": step_counter + 1,
     }
+
+
+def _resolve_active_rattle_indices(
+    atoms: Atoms, atom_indices: slice | list[int] | np.ndarray | None = None
+) -> np.ndarray:
+    """Return unconstrained atom indices eligible for coordinate rattle."""
+    n_atoms = len(atoms)
+    if atom_indices is not None:
+        if isinstance(atom_indices, slice):
+            idx = np.arange(*atom_indices.indices(n_atoms), dtype=int)
+        else:
+            idx = np.asarray(atom_indices, dtype=int)
+    else:
+        idx = np.arange(n_atoms, dtype=int)
+
+    if atoms.constraints:
+        fixed_mask = np.zeros(n_atoms, dtype=bool)
+        for constraint in atoms.constraints:
+            if hasattr(constraint, "index"):
+                fixed_mask[constraint.index] = True
+            elif hasattr(constraint, "get_indices"):
+                fixed_mask[constraint.get_indices()] = True
+        return idx[~fixed_mask[idx]]
+
+    return idx
+
+
+def run_rattle_perturbation(state: EnsembleState) -> EnsembleState:
+    """Apply Gaussian coordinate rattle to active atoms prior to relaxation.
+
+    Respects ASE ``FixAtoms`` constraints already attached to each frame, and
+    falls back to ``calculation_kwargs["thermal_perturb"]["constraints"]`` or
+    ``calculation_kwargs["initial_sampling"]["basin_constraints"]`` when frames
+    carry no constraints.
+
+    Parameters
+    ----------
+    state : EnsembleState
+        Current workflow state. Must contain non-empty ``"configs"``.
+
+    Returns
+    -------
+    EnsembleState
+        Updated workflow state pointing ``"configs"`` to the rattled XYZ file.
+
+    Raises
+    ------
+    ValueError
+        If ``state["configs"]`` is missing/empty or ``sigma < 0``.
+    """
+    logger.info("Running active-atom rattle perturbation...")
+
+    if not state.get("configs"):
+        logger.error("No configurations provided in state")
+        raise ValueError("No configurations provided in state")
+
+    calc_kwargs = state.get("calculation_kwargs", {})
+    perturb_kwargs = calc_kwargs.get("thermal_perturb", {})
+
+    sigma = float(perturb_kwargs.get("sigma", 0.15))
+    if sigma < 0.0:
+        raise ValueError(f"sigma must be non-negative, got {sigma!r}.")
+
+    seed = perturb_kwargs.get("seed", 42)
+    atom_indices = perturb_kwargs.get("atom_indices")
+    fallback_constraints = perturb_kwargs.get("constraints")
+    if not fallback_constraints:
+        fallback_constraints = calc_kwargs.get("initial_sampling", {}).get(
+            "basin_constraints"
+        )
+
+    step_counter = state.get("step_counter", 1)
+    current_iter = state.get("iteration", 0)
+    out_file = resolve_step_path(
+        step_suffix="rattle_perturb", iteration=current_iter, step_counter=step_counter
+    )
+
+    if Path(out_file).exists() and Path(out_file).stat().st_size > 0:
+        logger.info(
+            "Valid rattle perturbation output detected on disk. Skipping execution."
+        )
+        return {**state, "configs": [out_file], "step_counter": step_counter + 1}
+
+    effective_seed = None if seed is None else int(seed) + int(current_iter)
+    rng = np.random.default_rng(effective_seed)
+
+    perturbed_atoms: list[Atoms] = []
+    for at in ConfigSet(state["configs"]):
+        at_copy = at.copy()
+        if not at_copy.constraints and fallback_constraints:
+            at_copy.set_constraint(copy.deepcopy(fallback_constraints))
+
+        active_idx = _resolve_active_rattle_indices(at_copy, atom_indices=atom_indices)
+        if sigma > 0.0 and len(active_idx) > 0:
+            positions = at_copy.get_positions()
+            positions[active_idx] += rng.normal(0.0, sigma, size=(len(active_idx), 3))
+            at_copy.set_positions(positions)
+
+        perturbed_atoms.append(at_copy)
+
+    OutputSpec(out_file).write(ConfigSet(perturbed_atoms))
+    logger.info(
+        "Rattled %d configurations (sigma=%.3f A, seed=%s) -> %s",
+        len(perturbed_atoms),
+        sigma,
+        effective_seed,
+        out_file,
+    )
+
+    return {**state, "configs": [out_file], "step_counter": step_counter + 1}
 
 
 def run_mlip_structure_generation(state: EnsembleState) -> EnsembleState:
@@ -941,11 +1090,21 @@ def run_topology_relabel(state: EnsembleState) -> EnsembleState:
             "No known configs found by relabeller, falling back to treating all configs as known"
         )
         known_configs = list(ConfigSet(state["configs"]))
+        unknown_configs = []
 
     OutputSpec(out_file).write(ConfigSet(known_configs))
     OutputSpec(unknown_file).write(ConfigSet(unknown_configs))
 
-    return {**state, "configs": [out_file], "step_counter": step_counter + 1}
+    updated_unknown_files = list(state.get("unknown_configs") or [])
+    if unknown_file not in updated_unknown_files:
+        updated_unknown_files.append(unknown_file)
+
+    return {
+        **state,
+        "configs": [out_file],
+        "unknown_configs": updated_unknown_files,
+        "step_counter": step_counter + 1,
+    }
 
 
 def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:

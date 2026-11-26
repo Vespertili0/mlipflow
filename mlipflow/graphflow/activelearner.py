@@ -4,8 +4,10 @@ import copy
 import logging
 from typing import TypedDict
 
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
+from typing_extensions import NotRequired
 
 from mlipflow.graphflow.graphs import (
     execute_dft_single_point_block,
@@ -27,6 +29,8 @@ class ActiveLearningFlow(TypedDict):
         Paths to reaction data files.
     training_data : list[str]
         Accumulated training data file paths.
+    test_data : list[str], optional
+        Accumulated held-out ``dft_test`` file paths across iterations.
     iteration : int
         Current active-learning iteration index.
     model_name : str or None
@@ -37,9 +41,19 @@ class ActiveLearningFlow(TypedDict):
 
     reaction_data: list[str]
     training_data: list[str]
+    test_data: NotRequired[list[str]]
     iteration: int
     model_name: str | None
     ensemble_state: EnsembleState
+
+
+def _as_path_list(value: str | list[str] | None) -> list[str]:
+    """Normalize an optional file path or list of file paths to a list of strings."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return list(value)
 
 
 def _propagate_iteration(state: ActiveLearningFlow) -> EnsembleState:
@@ -48,6 +62,8 @@ def _propagate_iteration(state: ActiveLearningFlow) -> EnsembleState:
     current_iter = state.get("iteration", 0)
     if es.get("iteration") != current_iter:
         es["step_counter"] = 1
+        es.pop("model_file", None)
+        es.pop("unknown_configs", None)
     es["iteration"] = current_iter
     return es
 
@@ -70,20 +86,43 @@ def calculate_dft_level(state: ActiveLearningFlow) -> ActiveLearningFlow:
 
 
 def train_new_mlip_model(state: ActiveLearningFlow) -> ActiveLearningFlow:
-    """Run MLIP training subgraph."""
+    """Run MLIP training subgraph and synchronize model/dataset state."""
     ensemble_state = _propagate_iteration(state)
 
-    # Collect all train-data in state['configs']
-    new_training_data = state["training_data"] + state["ensemble_state"]["configs"]
+    # Accumulate training configs without duplicates
+    new_training_data = list(state.get("training_data", []))
+    for path in _as_path_list(state["ensemble_state"].get("configs")):
+        if path not in new_training_data:
+            new_training_data.append(path)
 
-    # Update mlip_name in mlip_strategy
-    ensemble_state["configs"] = new_training_data
-    ensemble_state[
-        "mlip_strategy"
-    ].mlip_name = f"{state['model_name']}_v{state['iteration']}"
+    # Accumulate held-out dft_test paths without leaking into training_data
+    new_test_data = list(state.get("test_data", []))
+    for path in _as_path_list(state["ensemble_state"].get("outfile")):
+        if path not in new_test_data and path not in new_training_data:
+            new_test_data.append(path)
+
+    # Synchronize model name, model_file, and uq_file on mlip_strategy
+    versioned_name = f"{state['model_name']}_v{state['iteration']}"
+    strategy = ensemble_state["mlip_strategy"]
+    if hasattr(strategy, "set_model_name"):
+        strategy.set_model_name(versioned_name)
+    else:
+        strategy.mlip_name = versioned_name
+
+    # Pass full accumulated training/test sets and record training configs for UQ
+    ensemble_state["configs"] = list(new_training_data)
+    ensemble_state["outfile"] = list(new_test_data)
+    ensemble_state["last_training_configs"] = list(new_training_data)
 
     subgraph_out = execute_mlip_training_block().invoke(ensemble_state)
-    return {**state, "training_data": new_training_data, "ensemble_state": subgraph_out}
+    subgraph_out = {**subgraph_out, "last_training_configs": list(new_training_data)}
+
+    return {
+        **state,
+        "training_data": new_training_data,
+        "test_data": new_test_data,
+        "ensemble_state": subgraph_out,
+    }
 
 
 def check_mlip_training_completion(state: ActiveLearningFlow) -> ActiveLearningFlow:
@@ -141,10 +180,11 @@ def run_active_learning_loop(
     graph.add_edge("finalise", END)
 
     # Establish durable local persistence with timeout for concurrent access
+    serde = JsonPlusSerializer(pickle_fallback=True)
     if storage_db_path == "memory":
         from langgraph.checkpoint.memory import MemorySaver
 
-        memory_layer = MemorySaver()
+        memory_layer = MemorySaver(serde=serde)
         runtime_graph = graph.compile(checkpointer=memory_layer)
         thread_id = f"workflow_{initial_state.get('model_name', 'unnamed_pot')}"
         execution_config = {"configurable": {"thread_id": thread_id}}
@@ -152,6 +192,8 @@ def run_active_learning_loop(
         return runtime_graph.invoke(initial_state, config=execution_config)
     else:
         with SqliteSaver.from_conn_string(storage_db_path) as memory_layer:
+            if memory_layer is not None:
+                memory_layer.serde = serde
             runtime_graph = graph.compile(checkpointer=memory_layer)
             thread_id = f"workflow_{initial_state.get('model_name', 'unnamed_pot')}"
             execution_config = {"configurable": {"thread_id": thread_id}}
