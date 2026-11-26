@@ -407,11 +407,7 @@ def select_by_uncertainty(
         )
 
     llpr = PerElementLLPR.load(resolved_uq, device=device)
-    effective_metrics = (
-        element_metrics
-        if element_metrics is not None
-        else (llpr.element_metrics or None)
-    )
+    effective_metrics = element_metrics or llpr.element_metrics or None
 
     pool_configs = _load_pool_configs(pool_file)
     if not pool_configs:
@@ -474,6 +470,8 @@ def select_by_uncertainty(
                 nums_list.append(nums)
             at.arrays[atom_uq_key] = full_atom_uq
             at.info[max_uq_key] = float(struct_uq)
+            at.info[uq_delta_key] = float(delta)
+            at.info[uq_model_key] = resolved_uq_name
             struct_scores.append(float(struct_uq))
         return descs_list, nums_list, struct_scores
 

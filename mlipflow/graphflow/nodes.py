@@ -1245,6 +1245,7 @@ def run_config_uncertainty_selection(state: EnsembleState) -> EnsembleState:
         return {
             **state,
             "configs": [selected_configs],
+            "selected_count": len(list(ConfigSet(selected_configs))),
             "step_counter": step_counter + 1,
         }
 
@@ -1360,9 +1361,6 @@ def run_rematch_basin_collapse(state: EnsembleState) -> EnsembleState:
     KeyError
         If ``state["mlip_strategy"]`` is missing.
     """
-    import torch
-    from mace.calculators import MACECalculator
-
     from mlipflow.data.rematch import species_chunked_louvain_clustering
 
     logger.info("Executing ReMATCH structural basin collapse.")

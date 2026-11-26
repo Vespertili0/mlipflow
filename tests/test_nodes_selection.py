@@ -147,14 +147,18 @@ def test_run_config_uncertainty_selection_kwargs_and_idempotency(tmp_path):
             out_path = Path(res["configs"][0])
             assert "selected_configs" in out_path.name
 
-        # Disk idempotency guard: non-empty output skips select_by_uncertainty completely
+        # Disk idempotency guard: non-empty output skips select_by_uncertainty and restores selected_count
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text("existing selected content", encoding="utf-8")
+        write(
+            out_path,
+            [Atoms("H", positions=[[0, 0, 0]]), Atoms("H", positions=[[1, 0, 0]])],
+        )
 
         with patch("mlipflow.graphflow.nodes.select_by_uncertainty") as mock_skip:
             res_skip = run_config_uncertainty_selection(state)
             mock_skip.assert_not_called()
             assert res_skip["configs"] == [str(out_path)]
+            assert res_skip["selected_count"] == 2
             assert res_skip["step_counter"] == 10
     finally:
         os.chdir(cwd)

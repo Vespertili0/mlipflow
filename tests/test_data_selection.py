@@ -456,7 +456,7 @@ def test_select_by_uncertainty_inline_uq_prefilter_and_provenance(tmp_path, capl
         assert spy.descriptor_calls == 2
         assert [at.info["tag"] for at in sel_fast] == ["ood0"]
 
-        # 2. Default use_inline_uq=False always scores full pool freshly
+        # 2. Default use_inline_uq=False always scores full pool freshly and writes provenance tags
         spy.descriptor_calls = 0
         sel_default = select_by_uncertainty(
             pool_file=pool,
@@ -468,6 +468,8 @@ def test_select_by_uncertainty_inline_uq_prefilter_and_provenance(tmp_path, capl
         )
         assert spy.descriptor_calls == 5
         assert [at.info["tag"] for at in sel_default] == ["ood0"]
+        assert sel_default[0].info["MACE_uq_delta"] == pytest.approx(0.50)
+        assert sel_default[0].info["MACE_uq_model"] == uq_file.name
 
         # 3. Provenance mismatch under use_inline_uq=True logs warning & falls back to full pool
         pool[0].info["MACE_uq_delta"] = 0.10  # mismatches requested delta=0.50
@@ -552,18 +554,19 @@ def test_select_by_uncertainty_zero_passing_and_fallback_matrix(tmp_path, caplog
         )
         assert [at.info["tag"] for at in res_fallback] == ["a0", "b0"]
 
-        # 4. Bootstrapped standalone call (element_metrics=None) reads element_metrics from .pt (p90 == 0.02 > 0.01)
-        res_bootstrapped = select_by_uncertainty(
-            pool_file=pool,
-            out_file=tmp_path / "bootstrapped.xyz",
-            mlip_strategy=mace_model,
-            uq_file=uq_file,
-            force_tol_eVA=5.0,
-            min_select_count=2,
-            element_metrics=None,
-            element_error_target=0.01,
-        )
-        assert [at.info["tag"] for at in res_bootstrapped] == ["a0", "b0"]
+        # 4. Bootstrapped standalone call (element_metrics=None or {}) reads element_metrics from .pt (p90 == 0.02 > 0.01)
+        for empty_state_metrics in (None, {}):
+            res_bootstrapped = select_by_uncertainty(
+                pool_file=pool,
+                out_file=tmp_path / "bootstrapped.xyz",
+                mlip_strategy=mace_model,
+                uq_file=uq_file,
+                force_tol_eVA=5.0,
+                min_select_count=2,
+                element_metrics=empty_state_metrics,
+                element_error_target=0.01,
+            )
+            assert [at.info["tag"] for at in res_bootstrapped] == ["a0", "b0"]
 
         # 5. Legacy .pt without element_metrics + element_metrics=None -> warns & returns empty
         legacy_payload = torch.load(str(uq_file), map_location="cpu", weights_only=True)

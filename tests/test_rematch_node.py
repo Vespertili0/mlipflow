@@ -56,7 +56,7 @@ class TestBasinCollapseValidation:
 
         state = EnsembleState(configs=["input.xyz"], mlip_strategy=mlip_mock)
 
-        with patch("mace.calculators.MACECalculator"):
+        with patch("mlipflow.graphflow.nodes.MACECalculator"):
             result = run_rematch_basin_collapse(state)
 
         assert result["configs"] == ["input.xyz"]
@@ -73,7 +73,7 @@ class TestBasinCollapseOrchestration:
     @patch("mlipflow.graphflow.nodes.OutputSpec")
     @patch("mlipflow.graphflow.nodes.resolve_step_path")
     @patch("mlipflow.data.rematch.species_chunked_louvain_clustering")
-    @patch("mace.calculators.MACECalculator")
+    @patch("mlipflow.graphflow.nodes.MACECalculator")
     @patch("mlipflow.graphflow.nodes.ConfigSet")
     def test_delegates_to_clustering(
         self,
