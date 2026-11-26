@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import logging
+from pathlib import Path
 from typing import TypedDict
 
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
@@ -64,6 +65,7 @@ def _propagate_iteration(state: ActiveLearningFlow) -> EnsembleState:
         es["step_counter"] = 1
         es.pop("model_file", None)
         es.pop("unknown_configs", None)
+        es.pop("selected_count", None)
     es["iteration"] = current_iter
     return es
 
@@ -76,6 +78,27 @@ def generate_new_structures(state: ActiveLearningFlow) -> ActiveLearningFlow:
     else:
         subgraph_out = execute_opt_neb_combination_block().invoke(es)
     return {**state, "ensemble_state": subgraph_out}
+
+
+def route_after_generation(state: ActiveLearningFlow) -> str:
+    """Short-circuit straight to finalisation when zero structures were selected."""
+    es = state.get("ensemble_state", {})
+    if es.get("selected_count") == 0:
+        logger.info(
+            "Zero structures selected in iteration %s; skipping DFT and MLIP retraining.",
+            state.get("iteration", 0),
+        )
+        return "DONE"
+    configs = _as_path_list(es.get("configs"))
+    if configs and all(
+        Path(p).exists() and Path(p).stat().st_size == 0 for p in configs
+    ):
+        logger.info(
+            "All selected configuration files are empty in iteration %s; skipping DFT and MLIP retraining.",
+            state.get("iteration", 0),
+        )
+        return "DONE"
+    return "run_dft"
 
 
 def calculate_dft_level(state: ActiveLearningFlow) -> ActiveLearningFlow:
@@ -109,13 +132,18 @@ def train_new_mlip_model(state: ActiveLearningFlow) -> ActiveLearningFlow:
     else:
         strategy.mlip_name = versioned_name
 
-    # Pass full accumulated training/test sets and record training configs for UQ
+    # Pass full accumulated training/test sets and record both for post-fit UQ calibration
     ensemble_state["configs"] = list(new_training_data)
     ensemble_state["outfile"] = list(new_test_data)
     ensemble_state["last_training_configs"] = list(new_training_data)
+    ensemble_state["last_test_configs"] = list(new_test_data)
 
     subgraph_out = execute_mlip_training_block().invoke(ensemble_state)
-    subgraph_out = {**subgraph_out, "last_training_configs": list(new_training_data)}
+    subgraph_out = {
+        **subgraph_out,
+        "last_training_configs": list(new_training_data),
+        "last_test_configs": list(new_test_data),
+    }
 
     return {
         **state,
@@ -169,7 +197,9 @@ def run_active_learning_loop(
     graph.add_node("finalise", finalising_learning_loop)
 
     graph.add_edge(START, "gen_new")
-    graph.add_edge("gen_new", "run_dft")
+    graph.add_conditional_edges(
+        "gen_new", route_after_generation, {"run_dft": "run_dft", "DONE": "finalise"}
+    )
     graph.add_edge("run_dft", "train_model")
     graph.add_edge("train_model", "check_training")
     graph.add_conditional_edges(

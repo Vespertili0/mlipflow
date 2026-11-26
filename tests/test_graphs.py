@@ -6,15 +6,26 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
+import torch
+from ase.calculators.mixing import SumCalculator
 from ase.constraints import FixAtoms
 from ase.io import read, write
+from mace.calculators import MACECalculator
 from wfl.configset import ConfigSet, OutputSpec
 
+from mlipflow.data.llpr import PerElementLLPR
+from mlipflow.graphflow.activelearner import route_mlip_training
 from mlipflow.graphflow.graphs import (
     execute_initial_basin_pathsampling_md_block,
+    execute_mlip_training_block,
     execute_opt_neb_combination_block,
 )
-from mlipflow.graphflow.nodes import EnsembleState, run_mlip_structure_generation
+from mlipflow.graphflow.nodes import (
+    EnsembleState,
+    run_mlip_structure_generation,
+    run_post_fit_calibration,
+)
 from mlipflow.strategies.dft import EMTCalc
 from mlipflow.strategies.mlip import MACEModel
 from mlipflow.strategies.structure_generators import MDGen, OPTGen
@@ -386,3 +397,195 @@ def test_execute_opt_neb_combination_block_rattle_and_unknown_bypass(tmp_path):
         assert result["unknown_configs"]
     finally:
         os.chdir(cwd)
+
+
+def test_execute_mlip_training_block_post_fit_calibration(tmp_path, caplog):
+    """End-to-end execute_mlip_training_block test with real mace_test.model and Cu(100) test_data.xyz.
+
+    Verifies:
+    - Fresh v_k forces are evaluated even when stale bogus MACE_forces exist on test_configs.
+    - {model_name}_v{iter}_llpr.pt is written and reloadable via torch.load(..., weights_only=True).
+    - Per-element MAE, p90, MaxErr, and Spearman are logged and stored in state['element_metrics'].
+    - state['uq_file'], state['last_training_configs'], and state['last_test_configs'] are populated.
+    - dispersion=True wraps MACECalculator + TorchDFTD3Calculator in SumCalculator.
+    """
+    data_dir = Path(__file__).resolve().parent / "data"
+    src_model = data_dir / "mace_test.model"
+    src_xyz = data_dir / "test_data.xyz"
+
+    all_frames = read(src_xyz, ":")
+    atom_slice = slice(48, None)
+
+    real_calc = MACECalculator(
+        model_paths=str(src_model), device="cpu", default_dtype="float32"
+    )
+    train_frames = all_frames[:12]
+    test_frames = [at.copy() for at in all_frames[12:]]
+    rng = np.random.default_rng(21)
+    for at in test_frames:
+        at_c = at.copy()
+        at_c.calc = real_calc
+        f_true_mace = at_c.get_forces()
+        # True DFT forces are close to v_k MACE forces (~0.04 eV/A error)
+        at.arrays["DFT_forces"] = f_true_mace + rng.normal(
+            0.0, 0.04, size=f_true_mace.shape
+        )
+        # Inject stale v_{k-1} MACE_forces with huge bogus offset (+50 eV/A)
+        at.arrays["MACE_forces"] = f_true_mace + 50.0
+
+    train_xyz = tmp_path / "07_dft_train.xyz"
+    test_xyz = tmp_path / "07_dft_test.xyz"
+    write(train_xyz, train_frames)
+    write(test_xyz, test_frames)
+
+    mlip_strategy = MACEModel(mlip_name="pot_v0", run_mode="local")
+
+    def _fake_fit_new_model(in_file, test_configs, **_kwargs):
+        _ = in_file, test_configs
+        shutil.copy2(src_model, mlip_strategy.model_file)
+
+    cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        state = EnsembleState(
+            configs=[str(train_xyz)],
+            outfile=[str(test_xyz)],
+            iteration=0,
+            mlip_strategy=mlip_strategy,
+            calculation_kwargs={
+                "llpr_calibration": {
+                    "dispersion": False,
+                    "atom_indices": atom_slice,
+                    "exclude_fixed": False,
+                    "tune_lambdas": (1e-4,),
+                }
+            },
+        )
+
+        caplog.clear()
+        with (
+            patch.object(
+                mlip_strategy, "fit_new_model", side_effect=_fake_fit_new_model
+            ),
+            caplog.at_level("INFO"),
+        ):
+            result = execute_mlip_training_block().invoke(state)
+
+        uq_path = Path(result["uq_file"])
+        assert uq_path.name == "pot_v0_llpr.pt"
+        assert uq_path.exists()
+        assert uq_path.stat().st_size > 0
+
+        # Verify weights_only=True reloadability
+        raw_payload = torch.load(str(uq_path), map_location="cpu", weights_only=True)
+        assert isinstance(raw_payload, dict)
+        reloaded = PerElementLLPR.load(uq_path, device="cpu")
+        assert set(reloaded.calibrations.keys()) == {0.50, 0.20, 0.10}
+
+        # Fresh v_k forces must have been evaluated (MAE << 1.0, NOT ~50 eV/A from stale MACE_forces)
+        assert result["last_training_configs"] == [str(train_xyz)]
+        assert result["last_test_configs"] == [str(test_xyz)]
+        elem_metrics = result["element_metrics"]
+        assert set(elem_metrics.keys()) == {1, 6, 8, 29}
+        for z, stats in elem_metrics.items():
+            assert stats["mae"] < 1.0, (
+                f"Stale MACE_forces used for Z={z}: MAE={stats['mae']}"
+            )
+            assert stats["p90"] >= stats["mae"]
+            assert stats["max_err"] >= stats["p90"]
+            assert "spearman" in stats
+
+        # Verify per-element metrics were logged
+        log_text = "\n".join(rec.message for rec in caplog.records)
+        assert "MAE" in log_text
+        assert "p90" in log_text
+        assert "MaxErr" in log_text
+
+        # Verify dispersion=True wraps MACECalculator + TorchDFTD3Calculator in SumCalculator
+        captured_force_calcs = []
+        orig_calibrate = PerElementLLPR.calibrate
+
+        def _spy_calibrate(self, *args, **kwargs):
+            captured_force_calcs.append(kwargs.get("force_calc"))
+            # Avoid running real D3 forces here by swapping force_calc to mace_calc after inspection
+            kwargs["force_calc"] = kwargs.get("mace_calc")
+            return orig_calibrate(self, *args, **kwargs)
+
+        state_disp = EnsembleState(
+            configs=[str(train_xyz)],
+            outfile=[str(test_xyz)],
+            iteration=0,
+            mlip_strategy=mlip_strategy,
+            calculation_kwargs={
+                "llpr_calibration": {
+                    "dispersion": True,
+                    "atom_indices": atom_slice,
+                    "exclude_fixed": False,
+                    "tune_lambdas": (1e-4,),
+                }
+            },
+        )
+        with (
+            patch.object(
+                mlip_strategy, "fit_new_model", side_effect=_fake_fit_new_model
+            ),
+            patch.object(PerElementLLPR, "calibrate", new=_spy_calibrate),
+        ):
+            execute_mlip_training_block().invoke(state_disp)
+
+        assert len(captured_force_calcs) == 1
+        assert isinstance(captured_force_calcs[0], SumCalculator)
+        assert len(captured_force_calcs[0].mixer.calcs) == 2
+        assert result["model_file"] == mlip_strategy.model_file
+    finally:
+        os.chdir(cwd)
+
+
+def test_execute_mlip_training_block_skips_calibration_on_missing_model(tmp_path):
+    """Verify calibration skips gracefully when run_mace_fit fails to produce model_file."""
+    mlip_strategy = MACEModel(mlip_name="pot_v0", run_mode="local")
+    mlip_strategy.fit_new_model = MagicMock()  # writes nothing to disk
+
+    state = EnsembleState(
+        configs=["train.xyz"],
+        outfile=["test.xyz"],
+        iteration=0,
+        mlip_strategy=mlip_strategy,
+    )
+
+    cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        result = execute_mlip_training_block().invoke(state)
+        assert "model_file" not in result
+        assert "uq_file" not in result
+        assert route_mlip_training({"ensemble_state": result}) == "loop"
+    finally:
+        os.chdir(cwd)
+
+
+def test_run_post_fit_calibration_raises_on_missing_datasets(tmp_path):
+    """Verify fail-fast ValueError when model_file exists but train/test configs are missing."""
+    model_file = tmp_path / "pot_v0.model"
+    model_file.write_text("trained weights", encoding="utf-8")
+    mlip_strategy = MACEModel(mlip_name=str(tmp_path / "pot_v0"), run_mode="local")
+
+    state_no_test = EnsembleState(
+        configs=["train.xyz"],
+        last_training_configs=["train.xyz"],
+        last_test_configs=[],
+        model_file=str(model_file),
+        mlip_strategy=mlip_strategy,
+    )
+    with pytest.raises(ValueError, match="test"):
+        run_post_fit_calibration(state_no_test)
+
+    state_no_train = EnsembleState(
+        configs=[],
+        last_training_configs=[],
+        last_test_configs=["test.xyz"],
+        model_file=str(model_file),
+        mlip_strategy=mlip_strategy,
+    )
+    with pytest.raises(ValueError, match="training"):
+        run_post_fit_calibration(state_no_train)

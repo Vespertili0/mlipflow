@@ -86,6 +86,7 @@ class PerElementLLPR:
 
         # Multi-level split-conformal calibration keyed by miscoverage delta
         self.calibrations: dict[float, dict[str, Any]] = {}
+        self.element_metrics: dict[int, dict[str, Any]] = {}
 
     @property
     def q_atom(self) -> float:
@@ -181,6 +182,26 @@ class PerElementLLPR:
         desc = mace_calc.get_descriptors(atoms, invariants_only=self.invariants_only)
         return np.asarray(desc, dtype=np.float64)
 
+    @staticmethod
+    def _compute_sigma2(gram: torch.Tensor, lambda_reg: float) -> float:
+        """Compute trace-scaled prior variance ``sigma_Z^2`` for a Gram matrix."""
+        dim = gram.shape[0]
+        trace_scale = torch.trace(gram).item() / dim
+        return max(float(lambda_reg) * trace_scale, 1e-12)
+
+    @staticmethod
+    def _factorize_gram(gram: torch.Tensor, sigma2: float) -> torch.Tensor:
+        """Compute ``float64`` Cholesky factor ``L`` of ``gram + sigma2 * I``."""
+        dim = gram.shape[0]
+        eye = torch.eye(dim, dtype=torch.float64, device=gram.device)
+        reg_mat = gram + float(sigma2) * eye
+        for attempt in range(5):
+            try:
+                return torch.linalg.cholesky(reg_mat)
+            except torch.linalg.LinAlgError:
+                reg_mat = reg_mat + (10.0**attempt) * float(sigma2) * eye
+        raise RuntimeError("Cholesky factorization failed for regularized Gram matrix.")
+
     def _factorize(self, lambda_reg: float | None = None) -> None:
         """Compute ``float64`` Cholesky factors ``L_Z`` of ``G_Z + sigma_Z^2 I``."""
         if lambda_reg is not None:
@@ -188,19 +209,13 @@ class PerElementLLPR:
 
         self.cholesky_factors = {}
         for z, gram in self.gram_matrices.items():
-            dim = gram.shape[0]
-            trace_scale = torch.trace(gram).item() / dim
-            sigma2 = max(self.lambda_reg * trace_scale, 1e-12)
-            eye = torch.eye(dim, dtype=torch.float64, device=self.device)
-            reg_mat = gram + sigma2 * eye
-            for attempt in range(5):
-                try:
-                    self.cholesky_factors[z] = torch.linalg.cholesky(reg_mat)
-                    break
-                except torch.linalg.LinAlgError:
-                    reg_mat = reg_mat + (10.0**attempt) * sigma2 * eye
-            else:
-                raise RuntimeError(f"Cholesky factorization failed for element Z={z}.")
+            sigma2 = self._compute_sigma2(gram, self.lambda_reg)
+            try:
+                self.cholesky_factors[z] = self._factorize_gram(gram, sigma2)
+            except RuntimeError as exc:
+                raise RuntimeError(
+                    f"Cholesky factorization failed for element Z={z}."
+                ) from exc
 
     def fit(
         self,
@@ -275,6 +290,28 @@ class PerElementLLPR:
         )
         return self
 
+    @staticmethod
+    def _score_feature_tensor(
+        feats: torch.Tensor,
+        numbers: np.ndarray,
+        cholesky_factors: dict[int, torch.Tensor],
+    ) -> np.ndarray:
+        """Compute deterministic raw per-atom LLPR std from a ``float64`` tensor."""
+        scores = np.full(len(numbers), np.inf, dtype=np.float64)
+        with torch.no_grad():
+            for z in np.unique(numbers):
+                z_int = int(z)
+                if z_int not in cholesky_factors:
+                    continue
+                mask_np = numbers == z
+                mask_t = torch.as_tensor(mask_np, dtype=torch.bool, device=feats.device)
+                fz = feats[mask_t]  # (n_z, D)
+                chol = cholesky_factors[z_int]  # (D, D)
+                z_vec = torch.linalg.solve_triangular(chol, fz.T, upper=False)
+                quad = torch.sum(z_vec**2, dim=0)
+                scores[mask_np] = torch.sqrt(torch.clamp(quad, min=0.0)).cpu().numpy()
+        return scores
+
     def _score_feature_array(
         self, feats_np: np.ndarray, numbers: np.ndarray
     ) -> np.ndarray:
@@ -284,22 +321,152 @@ class PerElementLLPR:
                 "PerElementLLPR must be fitted via fit() before scoring."
             )
 
-        scores = np.full(len(numbers), np.inf, dtype=np.float64)
         feats = torch.as_tensor(feats_np, dtype=torch.float64, device=self.device)
+        return self._score_feature_tensor(feats, numbers, self.cholesky_factors)
 
-        with torch.no_grad():
-            for z in np.unique(numbers):
-                z_int = int(z)
-                if z_int not in self.cholesky_factors:
+    def select_sequential_batch(
+        self,
+        candidate_descs: Sequence[np.ndarray],
+        candidate_numbers: Sequence[np.ndarray],
+        force_tol_eVA: float = 0.10,
+        delta: float = 0.50,
+        top_k: int | None = None,
+    ) -> list[int]:
+        """Select non-redundant structures via greedy per-element Gram/Cholesky updates.
+
+        Works strictly on in-memory copies of ``self.gram_matrices`` and
+        ``self.cholesky_factors`` while holding training prior variances
+        :math:`\\sigma_Z^2` and split-conformal multipliers fixed so calibrated
+        scores decrease monotonically as environments are selected.
+
+        Parameters
+        ----------
+        candidate_descs : Sequence of np.ndarray
+            Active-atom descriptor arrays of shape ``(n_active, D)`` per candidate.
+        candidate_numbers : Sequence of np.ndarray
+            Active-atom atomic numbers of shape ``(n_active,)`` per candidate.
+        force_tol_eVA : float, default=0.10
+            Physical worst-atom force-error tolerance in eV/A. Candidates whose
+            updated score drops to ``<= force_tol_eVA`` are pruned automatically
+            when ``top_k is None``.
+        delta : float, default=0.50
+            Miscoverage level for calibrated bounds (``0.50`` = expected error).
+        top_k : int or None, optional
+            If provided, selects up to ``top_k`` candidates in greedy Gram-update
+            order without applying the ``force_tol_eVA`` pruning gate (used for
+            diversity-preserving fallback selection).
+
+        Returns
+        -------
+        list of int
+            Indices into ``candidate_descs`` in greedy selection order.
+
+        Raises
+        ------
+        RuntimeError
+            If called before ``fit()``.
+        ValueError
+            If ``candidate_descs`` and ``candidate_numbers`` lengths differ.
+        """
+        if not self.gram_matrices or not self.cholesky_factors:
+            raise RuntimeError(
+                "PerElementLLPR must be fitted via fit() before batch selection."
+            )
+        if len(candidate_descs) != len(candidate_numbers):
+            raise ValueError(
+                "candidate_descs and candidate_numbers must have identical lengths."
+            )
+        n_candidates = len(candidate_descs)
+        if n_candidates == 0:
+            return []
+        if top_k is not None and top_k <= 0:
+            return []
+
+        cal = self.get_calibration(delta)
+        q_atom = float(cal["q_atom"])
+        q_atom_by_z: dict[int, float] = dict(cal["q_atom_by_z"])
+        q_struct = float(cal["q_struct"])
+
+        # Clone working Gram/Cholesky state and freeze training prior variances sigma_Z^2
+        work_grams: dict[int, torch.Tensor] = {
+            z: g.detach().clone() for z, g in self.gram_matrices.items()
+        }
+        work_chols: dict[int, torch.Tensor] = {
+            z: chol.detach().clone() for z, chol in self.cholesky_factors.items()
+        }
+        sigma2_by_z: dict[int, float] = {
+            z: self._compute_sigma2(g, self.lambda_reg)
+            for z, g in self.gram_matrices.items()
+        }
+
+        cand_feats = [
+            torch.as_tensor(
+                np.asarray(d, dtype=np.float64), dtype=torch.float64, device=self.device
+            )
+            for d in candidate_descs
+        ]
+        cand_nums = [np.asarray(n, dtype=int) for n in candidate_numbers]
+        cand_elem_sets = [{int(z) for z in np.unique(n)} for n in cand_nums]
+
+        def _score_candidate(idx: int) -> float:
+            nums = cand_nums[idx]
+            if len(nums) == 0:
+                return 0.0
+            raw = self._score_feature_tensor(cand_feats[idx], nums, work_chols)
+            cal_atom = self._apply_atom_calibration(raw, nums, q_atom, q_atom_by_z)
+            return q_struct * float(np.max(cal_atom))
+
+        scores = [_score_candidate(i) for i in range(n_candidates)]
+
+        if top_k is not None:
+            remaining = list(range(n_candidates))
+            max_picks: int | None = min(int(top_k), n_candidates)
+        else:
+            remaining = [i for i, s in enumerate(scores) if s > force_tol_eVA]
+            max_picks = None
+
+        selected: list[int] = []
+        while remaining:
+            if max_picks is not None and len(selected) >= max_picks:
+                break
+
+            best_idx = max(remaining, key=lambda idx: (scores[idx], -idx))
+            selected.append(best_idx)
+            remaining.remove(best_idx)
+
+            if not remaining or (max_picks is not None and len(selected) >= max_picks):
+                break
+
+            feats_best = cand_feats[best_idx]
+            nums_best = cand_nums[best_idx]
+            updated_z: set[int] = set()
+            for z in cand_elem_sets[best_idx]:
+                mask_t = torch.as_tensor(
+                    nums_best == z, dtype=torch.bool, device=self.device
+                )
+                fz = feats_best[mask_t]
+                if fz.shape[0] == 0:
                     continue
-                mask = numbers == z
-                fz = feats[mask]  # (n_z, D)
-                chol = self.cholesky_factors[z_int]  # (D, D)
-                z_vec = torch.linalg.solve_triangular(chol, fz.T, upper=False)
-                quad = torch.sum(z_vec**2, dim=0)
-                scores[mask] = torch.sqrt(torch.clamp(quad, min=0.0)).cpu().numpy()
+                gram_update = fz.T @ fz
+                if z not in work_grams:
+                    work_grams[z] = gram_update
+                    sigma2_by_z[z] = self._compute_sigma2(
+                        work_grams[z], self.lambda_reg
+                    )
+                else:
+                    work_grams[z] = work_grams[z] + gram_update
+                work_chols[z] = self._factorize_gram(work_grams[z], sigma2_by_z[z])
+                updated_z.add(z)
 
-        return scores
+            if updated_z:
+                for idx in remaining:
+                    if cand_elem_sets[idx] & updated_z:
+                        scores[idx] = _score_candidate(idx)
+
+            if max_picks is None:
+                remaining = [idx for idx in remaining if scores[idx] > force_tol_eVA]
+
+        return selected
 
     @staticmethod
     def _apply_atom_calibration(
@@ -434,7 +601,7 @@ class PerElementLLPR:
         mace_calc: MACECalculator | Any,
         force_calc: Calculator | None = None,
         ref_forces_key: str = "DFT_forces",
-        pred_forces_key: str = "MACE_forces",
+        pred_forces_key: str | None = "MACE_forces",
         atom_indices: slice | Sequence[int] | np.ndarray | None = None,
         exclude_fixed: bool = True,
         deltas: Sequence[float] = DEFAULT_CALIBRATION_DELTAS,
@@ -448,14 +615,15 @@ class PerElementLLPR:
             Held-out validation configurations (``dft_test``) containing ``ref_forces_key``.
         mace_calc : MACECalculator
             Frozen MACE calculator used for descriptor extraction (and force evaluation
-            if ``pred_forces_key`` is absent and ``force_calc`` is ``None``).
+            if ``pred_forces_key`` is absent/``None`` and ``force_calc`` is ``None``).
         force_calc : Calculator or None, optional
             Optional calculator (e.g., MACE + D3 ``SumCalculator``) used for force
-            prediction when ``pred_forces_key`` is not pre-stored on ``val_configs``.
+            prediction when ``pred_forces_key`` is ``None`` or absent on ``val_configs``.
         ref_forces_key : str, default="DFT_forces"
             ``atoms.arrays`` key for reference DFT forces.
-        pred_forces_key : str, default="MACE_forces"
-            ``atoms.arrays`` key for pre-stored MLIP forces.
+        pred_forces_key : str or None, default="MACE_forces"
+            ``atoms.arrays`` key for pre-stored MLIP forces. Pass ``None`` to ignore
+            any pre-stored forces and force fresh evaluation with ``force_calc`` / ``mace_calc``.
         atom_indices : slice or Sequence of int or np.ndarray, optional
             Optional subset of active atom indices.
         exclude_fixed : bool, default=True
@@ -510,7 +678,7 @@ class PerElementLLPR:
                 continue
 
             f_ref = np.asarray(at.arrays[ref_forces_key][idx], dtype=np.float64)
-            if pred_forces_key in at.arrays:
+            if pred_forces_key is not None and pred_forces_key in at.arrays:
                 f_pred = np.asarray(at.arrays[pred_forces_key][idx], dtype=np.float64)
             else:
                 at_copy = at.copy()
@@ -656,6 +824,7 @@ class PerElementLLPR:
                     for delta in delta_list
                 },
             }
+        self.element_metrics = per_element
 
         logger.info(
             "Calibrated PerElementLLPR on %d configs | best_lambda=%.1e | deltas=%s | coverage=%s",
@@ -701,6 +870,21 @@ class PerElementLLPR:
             }
             for delta, entry in self.calibrations.items()
         }
+        pure_element_metrics = {
+            int(z): {
+                "n_atoms": int(stats["n_atoms"]),
+                "mae": float(stats["mae"]),
+                "p90": float(stats["p90"]),
+                "max_err": float(stats["max_err"]),
+                "spearman": (
+                    None if stats.get("spearman") is None else float(stats["spearman"])
+                ),
+                "q_atom": {
+                    float(d): float(q) for d, q in stats.get("q_atom", {}).items()
+                },
+            }
+            for z, stats in self.element_metrics.items()
+        }
         payload = {
             "lambda_reg": float(self.lambda_reg),
             "invariants_only": bool(self.invariants_only),
@@ -709,6 +893,7 @@ class PerElementLLPR:
             "eps": float(self.eps),
             "atom_counts": {int(z): int(c) for z, c in self.atom_counts.items()},
             "calibrations": pure_calibrations,
+            "element_metrics": pure_element_metrics,
             "gram_matrices": {
                 int(z): g.detach().to(device="cpu", dtype=torch.float64)
                 for z, g in self.gram_matrices.items()
@@ -755,6 +940,21 @@ class PerElementLLPR:
                 "q_struct": float(entry["q_struct"]),
             }
             for delta, entry in payload.get("calibrations", {}).items()
+        }
+        obj.element_metrics = {
+            int(z): {
+                "n_atoms": int(stats["n_atoms"]),
+                "mae": float(stats["mae"]),
+                "p90": float(stats["p90"]),
+                "max_err": float(stats["max_err"]),
+                "spearman": (
+                    None if stats.get("spearman") is None else float(stats["spearman"])
+                ),
+                "q_atom": {
+                    float(d): float(q) for d, q in stats.get("q_atom", {}).items()
+                },
+            }
+            for z, stats in payload.get("element_metrics", {}).items()
         }
         obj.gram_matrices = {
             int(z): g.to(device=device, dtype=torch.float64)

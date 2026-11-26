@@ -3,12 +3,18 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
+from ase import Atoms
 from ase.io import read, write
 
-from mlipflow.graphflow.nodes import EnsembleState, run_config_fps_selection
+from mlipflow.graphflow.nodes import (
+    EnsembleState,
+    run_config_fps_selection,
+    run_config_uncertainty_selection,
+)
+from mlipflow.strategies.mlip import MACEModel
 
 
 def test_run_config_fps_selection(tmp_path):
@@ -80,5 +86,75 @@ def test_run_config_fps_selection(tmp_path):
         # Verify descriptors are present (ConfigurationSelector adds them)
         assert "SOAP" in selected_atoms[0].info
 
+    finally:
+        os.chdir(cwd)
+
+
+def test_run_config_uncertainty_selection_kwargs_and_idempotency(tmp_path):
+    """Verify run_config_uncertainty_selection forwards all LLPR kwargs and enforces disk idempotency."""
+    mlip_strategy = MACEModel(mlip_name="pot_v0", run_mode="local")
+    metrics = {29: {"mae": 0.03, "p90": 0.06, "max_err": 0.12}}
+
+    sel_kwargs = {
+        "force_tol_eVA": 0.12,
+        "min_select_count": 3,
+        "atom_indices": slice(48, None),
+        "exclude_fixed": False,
+        "delta": 0.50,
+        "device": "cpu",
+        "element_error_target": 0.08,
+        "element_error_metric": "p90",
+        "use_inline_uq": True,
+    }
+
+    state = EnsembleState(
+        configs=["pool.xyz"],
+        iteration=1,
+        step_counter=9,
+        mlip_strategy=mlip_strategy,
+        uq_file="custom_v0_llpr.pt",
+        element_metrics=metrics,
+        calculation_kwargs={"uncertainty_selection": sel_kwargs},
+    )
+
+    cwd = Path.cwd()
+    os.chdir(tmp_path)
+    try:
+        with patch(
+            "mlipflow.graphflow.nodes.select_by_uncertainty",
+            return_value=[Atoms("H"), Atoms("H")],
+        ) as mock_select:
+            res = run_config_uncertainty_selection(state)
+
+            mock_select.assert_called_once()
+            call_kw = mock_select.call_args.kwargs
+            assert call_kw["pool_file"] == ["pool.xyz"]
+            assert call_kw["mlip_strategy"] is mlip_strategy
+            assert call_kw["uq_file"] == "custom_v0_llpr.pt"
+            assert call_kw["force_tol_eVA"] == 0.12
+            assert call_kw["min_select_count"] == 3
+            assert call_kw["atom_indices"] == slice(48, None)
+            assert call_kw["exclude_fixed"] is False
+            assert call_kw["delta"] == 0.50
+            assert call_kw["device"] == "cpu"
+            assert call_kw["element_metrics"] == metrics
+            assert call_kw["element_error_target"] == 0.08
+            assert call_kw["element_error_metric"] == "p90"
+            assert call_kw["use_inline_uq"] is True
+
+            assert res["step_counter"] == 10
+            assert res["selected_count"] == 2
+            out_path = Path(res["configs"][0])
+            assert "selected_configs" in out_path.name
+
+        # Disk idempotency guard: non-empty output skips select_by_uncertainty completely
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text("existing selected content", encoding="utf-8")
+
+        with patch("mlipflow.graphflow.nodes.select_by_uncertainty") as mock_skip:
+            res_skip = run_config_uncertainty_selection(state)
+            mock_skip.assert_not_called()
+            assert res_skip["configs"] == [str(out_path)]
+            assert res_skip["step_counter"] == 10
     finally:
         os.chdir(cwd)

@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 from ase.io import read
 
 from mlipflow.graphflow.activelearner import (
@@ -136,6 +137,7 @@ def test_train_new_mlip_model(mock_block):
     assert result["training_data"] == expected_train
     assert result["test_data"] == expected_test
     assert result["ensemble_state"]["last_training_configs"] == expected_train
+    assert result["ensemble_state"]["last_test_configs"] == expected_test
 
     updated_strategy = result["ensemble_state"]["mlip_strategy"]
     assert updated_strategy.mlip_name == "pot_v3"
@@ -144,6 +146,7 @@ def test_train_new_mlip_model(mock_block):
     mock_invoke.invoke.assert_called_once()
     invoked_state = mock_invoke.invoke.call_args.args[0]
     assert invoked_state["outfile"] == expected_test
+    assert invoked_state["last_test_configs"] == expected_test
 
 
 @patch("mlipflow.graphflow.activelearner.SqliteSaver.from_conn_string")
@@ -206,22 +209,63 @@ def test_run_active_learning_loop(
     ]
 
 
+@patch("mlipflow.graphflow.activelearner.execute_opt_neb_combination_block")
+@patch("mlipflow.graphflow.activelearner.execute_dft_single_point_block")
+@patch("mlipflow.graphflow.activelearner.execute_mlip_training_block")
+def test_run_active_learning_loop_short_circuits_on_empty_selection(
+    mock_train, mock_dft, mock_gen, tmp_path
+):
+    """Verify 0 selected structures short-circuits straight to finalise without DFT or retraining."""
+    empty_sel = tmp_path / "09_selected_configs.xyz"
+    empty_sel.write_text("", encoding="utf-8")
+
+    mock_gen_invoke = MagicMock()
+    mock_gen_invoke.invoke.return_value = {
+        "configs": [str(empty_sel)],
+        "selected_count": 0,
+        "mlip_strategy": DummyStrategy(),
+    }
+    mock_gen.return_value = mock_gen_invoke
+
+    initial_state = {
+        "reaction_data": [],
+        "training_data": ["init_train.xyz"],
+        "test_data": ["init_test.xyz"],
+        "iteration": 1,
+        "model_name": "pot",
+        "ensemble_state": {"configs": ["seed.xyz"], "mlip_strategy": DummyStrategy()},
+    }
+
+    final_state = run_active_learning_loop(
+        initial_state=initial_state, storage_db_path="memory"
+    )
+
+    mock_gen_invoke.invoke.assert_called_once()
+    mock_dft.assert_not_called()
+    mock_train.assert_not_called()
+    assert final_state["training_data"] == ["init_train.xyz"]
+    assert final_state["test_data"] == ["init_test.xyz"]
+
+
 def test_multi_iteration_active_learning_dry_run_with_emt(tmp_path):
-    """Multi-iteration (v0 -> v1 -> v2) dry run with EMTCalc and real test_data.xyz.
+    """Multi-iteration (v0 -> v1 -> v2) dry run with EMTCalc, real test_data.xyz, and real LLPR calibration.
 
     Verifies:
     - mlip_strategy.model_file and uq_file advance cleanly (v0 -> v1 -> v2).
-    - ensemble_state["last_training_configs"] matches accumulated state["training_data"]
-      and is visible to subsequent iterations' structure generation.
-    - state["test_data"] accumulates held-out dft_test files across iterations
-      without leaking into state["training_data"].
+    - Post-fit LLPR calibration produces reloadable pot_v{it}_llpr.pt and element_metrics.
+    - ensemble_state['last_training_configs'], ['last_test_configs'], ['uq_file'], and
+      ['element_metrics'] propagate cleanly into subsequent iterations' structure generation.
+    - state['test_data'] accumulates held-out dft_test files across iterations
+      without leaking into state['training_data'].
     """
     test_dir = Path(__file__).resolve().parent
     src_xyz = test_dir / "data" / "test_data.xyz"
     seed_xyz = tmp_path / "seed_configs.xyz"
     shutil.copy2(src_xyz, seed_xyz)
 
-    observed_gen_states: list[tuple[int, str, list[str] | None]] = []
+    observed_gen_states: list[
+        tuple[int, str, list[str] | None, str | None, dict | None]
+    ] = []
     fitted_models: list[tuple[str, str, str | None]] = []
 
     def _fake_gen_invoke(es):
@@ -233,6 +277,8 @@ def test_multi_iteration_active_learning_dry_run_with_emt(tmp_path):
                 list(es["last_training_configs"])
                 if "last_training_configs" in es
                 else None,
+                es.get("uq_file"),
+                es.get("element_metrics"),
             )
         )
         iter_in = tmp_path / f"gen_iter_{it}.xyz"
@@ -246,9 +292,25 @@ def test_multi_iteration_active_learning_dry_run_with_emt(tmp_path):
     fitted_test_sets: list[list[str]] = []
 
     def _fake_fit_new_model(self, in_file, test_configs, **_kwargs):
+        _ = in_file
         fitted_models.append((self.mlip_name, self.model_file, self.uq_file))
         fitted_test_sets.append(list(test_configs))
-        Path(self.model_file).write_text("dummy model", encoding="utf-8")
+        Path(self.model_file).write_text("trained model weights", encoding="utf-8")
+
+    class _FastMACECalc:
+        """Fast deterministic calculator for 3-iteration dry-run calibration."""
+
+        def __init__(self, **_kwargs):
+            pass
+
+        def get_descriptors(self, atoms, invariants_only: bool = True):
+            _ = invariants_only
+            pos = atoms.get_positions()
+            nums = atoms.get_atomic_numbers()[:, None]
+            return np.hstack([pos, nums, pos**2]).astype(np.float64)
+
+        def get_forces(self, atoms=None):
+            return np.zeros((len(atoms), 3), dtype=np.float64)
 
     mock_gen_block = MagicMock()
     mock_gen_block.invoke.side_effect = _fake_gen_invoke
@@ -274,6 +336,12 @@ def test_multi_iteration_active_learning_dry_run_with_emt(tmp_path):
                     "seed": 42,
                     "max_force": 1e6,
                 },
+                "llpr_calibration": {
+                    "dispersion": False,
+                    "atom_indices": slice(48, None),
+                    "exclude_fixed": False,
+                    "tune_lambdas": (1e-4,),
+                },
             },
         },
     }
@@ -290,6 +358,7 @@ def test_multi_iteration_active_learning_dry_run_with_emt(tmp_path):
                 "mlipflow.graphflow.activelearner.execute_opt_neb_combination_block",
                 return_value=mock_gen_block,
             ),
+            patch("mlipflow.graphflow.nodes.MACECalculator", side_effect=_FastMACECalc),
             patch.object(MACEModel, "fit_new_model", new=_fake_fit_new_model),
         ):
             for it in range(3):
@@ -302,12 +371,23 @@ def test_multi_iteration_active_learning_dry_run_with_emt(tmp_path):
                 assert strat.mlip_name == f"pot_v{it}"
                 assert strat.model_file == f"pot_v{it}.model"
                 assert strat.uq_file == f"pot_v{it}_llpr.pt"
+                assert state["ensemble_state"]["uq_file"] == f"pot_v{it}_llpr.pt"
+                assert Path(f"pot_v{it}_llpr.pt").exists()
+                assert set(state["ensemble_state"]["element_metrics"].keys()) == {
+                    1,
+                    6,
+                    8,
+                    29,
+                }
 
                 assert len(state["training_data"]) == it + 1
                 assert len(state["test_data"]) == it + 1
                 assert (
                     state["ensemble_state"]["last_training_configs"]
                     == state["training_data"]
+                )
+                assert (
+                    state["ensemble_state"]["last_test_configs"] == state["test_data"]
                 )
                 assert set(state["test_data"]).isdisjoint(set(state["training_data"]))
 
@@ -323,11 +403,15 @@ def test_multi_iteration_active_learning_dry_run_with_emt(tmp_path):
             state["test_data"][:3],
         ]
 
-        # Verify iterations 1 and 2 saw the updated model_file & last_training_configs
+        # Verify iterations 1 and 2 saw updated model_file, last_training_configs, uq_file, and element_metrics
         assert observed_gen_states[1][1] == "pot_v0.model"
         assert observed_gen_states[1][2] == state["training_data"][:1]
+        assert observed_gen_states[1][3] == "pot_v0_llpr.pt"
+        assert observed_gen_states[1][4] is not None
         assert observed_gen_states[2][1] == "pot_v1.model"
         assert observed_gen_states[2][2] == state["training_data"][:2]
+        assert observed_gen_states[2][3] == "pot_v1_llpr.pt"
+        assert observed_gen_states[2][4] is not None
 
         # All accumulated dft_train and dft_test files exist on disk with expected counts
         for train_path, test_path in zip(state["training_data"], state["test_data"]):

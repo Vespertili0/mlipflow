@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
 import numpy as np
+import torch
+from ase.calculators.mixing import SumCalculator
+from mace.calculators import MACECalculator
+from torch_dftd.torch_dftd3_calculator import TorchDFTD3Calculator
 from typing_extensions import NotRequired
 from wfl.configset import ConfigSet, OutputSpec
 from wfl.map import map as wfl_map
@@ -16,6 +20,11 @@ from mlipflow.core.neb_pairing import create_neb_pairs
 from mlipflow.core.single_point import run_chunked_qe_sp, run_single_point
 from mlipflow.data import clean_up, setup_logging
 from mlipflow.data.labeller import relabel_configs
+from mlipflow.data.llpr import (
+    DEFAULT_CALIBRATION_DELTAS,
+    DEFAULT_LAMBDA_GRID,
+    PerElementLLPR,
+)
 from mlipflow.data.processing import (
     check_maxforce_and_cleanarrays,
     clean_configset_data,
@@ -83,6 +92,29 @@ class EnsembleState(TypedDict):
                 - 'info_field': info field for histogram selection
                 - 'n_optimal': optimal number of configs (optional)
                 - 'n_max': max configs for optimal N search (optional)
+            - 'llpr_calibration': kwargs for post-fit PerElementLLPR calibration
+                - 'dispersion': whether to wrap MACE with TorchDFTD3Calculator (default: mlip_sp.dispersion or True)
+                - 'dtype': calculator dtype (default: mlip_sp.dtype or 'float32')
+                - 'device': PyTorch device (default: uncertainty_selection.device or 'cpu')
+                - 'atom_indices': optional active atom indices (default: uncertainty_selection.atom_indices or None)
+                - 'exclude_fixed': exclude FixAtoms constraints (default: uncertainty_selection.exclude_fixed or True)
+                - 'invariants_only': use invariant MACE descriptors (default: True)
+                - 'lambda_reg': initial ridge regularization (default: 1e-4)
+                - 'deltas': calibration miscoverage levels (default: (0.50, 0.20, 0.10))
+                - 'default_delta': default scoring miscoverage level (default: 0.20)
+                - 'tune_lambdas': lambda sweep grid or None (default: DEFAULT_LAMBDA_GRID)
+                - 'ref_forces_key': reference DFT force array key (default: 'DFT_forces')
+            - 'uncertainty_selection': kwargs for Sequential Batch LLPR selection
+                - 'force_tol_eVA': physical worst-atom error threshold in eV/A (default: 0.10)
+                - 'min_select_count': optional greedy top-K fallback count when n_passing == 0 (default: 0)
+                - 'atom_indices': optional active atom indices (default: None)
+                - 'exclude_fixed': exclude FixAtoms constraints (default: True)
+                - 'delta': miscoverage level for calibrated selection bounds (default: 0.50)
+                - 'device': PyTorch device (default: 'cpu')
+                - 'dtype': MACECalculator dtype (default: 'float32')
+                - 'element_error_target': target element error gating fallback (default: force_tol_eVA)
+                - 'element_error_metric': metric key ('mae', 'p90', 'max_err') (default: 'p90')
+                - 'use_inline_uq': use pre-populated MACE_max_uq for pre-filtering (default: False)
             - 'neb_analysis': kwargs for NEB trajectory analysis
                 - 'prefixes': method prefixes for energy/force keys (default: ("MACE", "DFT"))
                 - 'n_frames': frames per NEB pathway (default: None -> single pathway)
@@ -102,7 +134,11 @@ class EnsembleState(TypedDict):
     pre_collapsed_configs: NotRequired[list[str]]
     unknown_configs: NotRequired[list[str]]
     last_training_configs: NotRequired[list[str]]
+    last_test_configs: NotRequired[list[str]]
     model_file: NotRequired[str]
+    uq_file: NotRequired[str]
+    element_metrics: NotRequired[dict[int, dict[str, Any]]]
+    selected_count: NotRequired[int]
 
 
 @dataclass
@@ -578,15 +614,36 @@ def assess_n_select(state: EnsembleState) -> EnsembleState:
     }
 
 
+def _as_path_list(value: str | list[str] | None) -> list[str]:
+    """Normalize an optional file path or list of file paths to a list of strings."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return list(value)
+
+
 def run_mace_fit(state: EnsembleState) -> EnsembleState:
     configs = state["configs"]
-    test_configs = state["outfile"]
+    test_configs = state.get("outfile") or state.get("last_test_configs")
 
     state["mlip_strategy"].fit_new_model(
         in_file=configs, test_configs=test_configs, seed=123, restart=False
     )
     step_counter = state.get("step_counter", 1)
-    result = {**state, "outfile": None, "step_counter": step_counter + 1}
+    train_paths = _as_path_list(configs) or _as_path_list(
+        state.get("last_training_configs")
+    )
+    test_paths = _as_path_list(test_configs) or _as_path_list(
+        state.get("last_test_configs")
+    )
+    result = {
+        **state,
+        "outfile": None,
+        "last_training_configs": train_paths,
+        "last_test_configs": test_paths,
+        "step_counter": step_counter + 1,
+    }
     model_file = getattr(state["mlip_strategy"], "model_file", None)
     if (
         model_file is not None
@@ -597,6 +654,143 @@ def run_mace_fit(state: EnsembleState) -> EnsembleState:
     else:
         result.pop("model_file", None)
     return result
+
+
+def run_post_fit_calibration(state: EnsembleState) -> EnsembleState:
+    """Fit and calibrate PerElementLLPR on the newly trained MACE model.
+
+    Evaluates fresh forces of the newly fitted model ``v_k`` (optionally wrapped
+    with ``TorchDFTD3Calculator`` via ``SumCalculator`` when ``dispersion=True``)
+    on accumulated ``test_configs`` (ignoring any stale ``MACE_forces`` arrays),
+    persists ``{model_name}_v{iter}_llpr.pt``, logs per-element ``MAE`` / ``p90`` /
+    ``MaxErr`` / ``Spearman``, and populates ``uq_file`` and ``element_metrics``
+    in ``EnsembleState``.
+
+    Skips gracefully without raising if ``run_mace_fit`` did not produce a valid
+    ``model_file`` (preserving ``route_mlip_training`` retry behavior), and fails
+    fast with ``ValueError`` if ``model_file`` exists but training or held-out
+    test paths are missing.
+    """
+    model_file = state.get("model_file")
+    if (
+        not model_file
+        or not Path(model_file).exists()
+        or Path(model_file).stat().st_size == 0
+    ):
+        logger.warning(
+            "Valid model_file not found after training (%r); skipping post-fit LLPR calibration.",
+            model_file,
+        )
+        return {**state}
+
+    train_configs = _as_path_list(
+        state.get("last_training_configs") or state.get("configs")
+    )
+    test_configs = _as_path_list(state.get("last_test_configs") or state.get("outfile"))
+    if not train_configs:
+        raise ValueError(
+            "No training configurations available for post-fit LLPR calibration."
+        )
+    if not test_configs:
+        raise ValueError(
+            "No held-out test configurations available for post-fit LLPR calibration."
+        )
+
+    calc_kwargs = state.get("calculation_kwargs", {})
+    cal_kwargs = calc_kwargs.get("llpr_calibration", {})
+    sel_kwargs = calc_kwargs.get("uncertainty_selection", {})
+    mlip_sp_kwargs = calc_kwargs.get("mlip_sp", {})
+
+    dispersion = cal_kwargs.get("dispersion", mlip_sp_kwargs.get("dispersion", True))
+    dtype = cal_kwargs.get("dtype", mlip_sp_kwargs.get("dtype", "float32"))
+    device = cal_kwargs.get("device", sel_kwargs.get("device", "cpu"))
+    atom_indices = cal_kwargs.get("atom_indices", sel_kwargs.get("atom_indices", None))
+    exclude_fixed = cal_kwargs.get(
+        "exclude_fixed", sel_kwargs.get("exclude_fixed", True)
+    )
+    invariants_only = cal_kwargs.get("invariants_only", True)
+    lambda_reg = cal_kwargs.get("lambda_reg", 1e-4)
+    deltas = cal_kwargs.get("deltas", DEFAULT_CALIBRATION_DELTAS)
+    default_delta = cal_kwargs.get("default_delta", 0.20)
+    tune_lambdas = cal_kwargs.get("tune_lambdas", DEFAULT_LAMBDA_GRID)
+
+    qchem = state.get("qchem_strategy")
+    qchem_prefix = getattr(qchem, "qe_prefix", "DFT_")
+    if not isinstance(qchem_prefix, str):
+        qchem_prefix = "DFT_"
+    ref_forces_key = cal_kwargs.get("ref_forces_key", f"{qchem_prefix}forces")
+
+    mace_calc = MACECalculator(
+        model_paths=str(Path(model_file).resolve()), device=device, default_dtype=dtype
+    )
+
+    force_calc: Any = mace_calc
+    if dispersion:
+        dftd3_calc = TorchDFTD3Calculator(
+            damping="bj",
+            old=False,
+            device=device,
+            dtype=torch.float32 if dtype == "float32" else torch.float64,
+        )
+        force_calc = SumCalculator(calcs=[mace_calc, dftd3_calc])
+
+    llpr = PerElementLLPR(
+        lambda_reg=lambda_reg,
+        invariants_only=invariants_only,
+        device=device,
+        default_delta=default_delta,
+    )
+    llpr.fit(
+        train_configs=ConfigSet(train_configs),
+        mace_calc=mace_calc,
+        atom_indices=atom_indices,
+        exclude_fixed=exclude_fixed,
+    )
+    cal_diag = llpr.calibrate(
+        val_configs=ConfigSet(test_configs),
+        mace_calc=mace_calc,
+        force_calc=force_calc,
+        ref_forces_key=ref_forces_key,
+        pred_forces_key=None,
+        atom_indices=atom_indices,
+        exclude_fixed=exclude_fixed,
+        deltas=deltas,
+        tune_lambdas=tune_lambdas,
+    )
+
+    mlip_strategy = state.get("mlip_strategy")
+    uq_file = getattr(mlip_strategy, "uq_file", None) or str(
+        Path(model_file).with_name(f"{Path(model_file).stem}_llpr.pt")
+    )
+    Path(uq_file).parent.mkdir(parents=True, exist_ok=True)
+    llpr.save(uq_file)
+
+    element_metrics = cal_diag["per_element"]
+    logger.info("Post-fit LLPR calibration saved to %s", uq_file)
+    for z, stats in sorted(element_metrics.items()):
+        spearman_val = stats.get("spearman")
+        spearman_str = (
+            "n/a"
+            if spearman_val is None or not np.isfinite(spearman_val)
+            else f"{spearman_val:.3f}"
+        )
+        logger.info(
+            "  Z=%3d | N=%6d | MAE=%.4f eV/A | p90=%.4f eV/A | MaxErr=%.4f eV/A | Spearman=%s",
+            z,
+            stats["n_atoms"],
+            stats["mae"],
+            stats["p90"],
+            stats["max_err"],
+            spearman_str,
+        )
+
+    step_counter = state.get("step_counter", 1)
+    return {
+        **state,
+        "uq_file": str(uq_file),
+        "element_metrics": element_metrics,
+        "step_counter": step_counter + 1,
+    }
 
 
 def _run_structure_generation_logic(
@@ -1028,8 +1222,12 @@ def run_config_fps_selection(state: EnsembleState) -> EnsembleState:
 
 
 def run_config_uncertainty_selection(state: EnsembleState) -> EnsembleState:
-    """ """
+    """Select non-redundant uncertain configurations via Sequential Batch LLPR."""
     logger.info("Running uncertainty-based configuration selection...")
+
+    if not state.get("configs"):
+        logger.error("No configurations provided in state")
+        raise ValueError("No configurations provided in state")
 
     step_counter = state.get("step_counter", 1)
     current_iter = state.get("iteration", 0)
@@ -1040,20 +1238,44 @@ def run_config_uncertainty_selection(state: EnsembleState) -> EnsembleState:
         step_counter=step_counter,
     )
 
-    select_by_uncertainty(
-        train_file=state["last_training_configs"],
+    if Path(selected_configs).exists() and Path(selected_configs).stat().st_size > 0:
+        logger.info(
+            "Valid uncertainty selection output detected on disk. Skipping execution."
+        )
+        return {
+            **state,
+            "configs": [selected_configs],
+            "step_counter": step_counter + 1,
+        }
+
+    sel_kwargs = state.get("calculation_kwargs", {}).get("uncertainty_selection", {})
+    mlip_strategy = state["mlip_strategy"]
+    uq_file = state.get("uq_file") or getattr(mlip_strategy, "uq_file", None)
+
+    selected = select_by_uncertainty(
         pool_file=state["configs"],
         out_file=selected_configs,
-        mlip_strategy=state["mlip_strategy"],
-        # certainty_threshold=state['calculation_kwargs']['selection']['certainty_threshold'],
-        # pca_variance_threshold: float = 0.95,
-        # max_gmm_components: int = 30,
-        # gmm_n_init: int = 5,
-        # device: str = 'cpu',
-        # dtype: "torch.dtype" = None,
+        mlip_strategy=mlip_strategy,
+        uq_file=uq_file,
+        force_tol_eVA=sel_kwargs.get("force_tol_eVA", 0.10),
+        min_select_count=sel_kwargs.get("min_select_count", 0),
+        atom_indices=sel_kwargs.get("atom_indices", None),
+        exclude_fixed=sel_kwargs.get("exclude_fixed", True),
+        delta=sel_kwargs.get("delta", 0.50),
+        device=sel_kwargs.get("device", "cpu"),
+        dtype=sel_kwargs.get("dtype", "float32"),
+        element_metrics=state.get("element_metrics"),
+        element_error_target=sel_kwargs.get("element_error_target", None),
+        element_error_metric=sel_kwargs.get("element_error_metric", "p90"),
+        use_inline_uq=sel_kwargs.get("use_inline_uq", False),
     )
 
-    return {**state, "configs": [selected_configs], "step_counter": step_counter + 1}
+    return {
+        **state,
+        "configs": [selected_configs],
+        "selected_count": len(selected),
+        "step_counter": step_counter + 1,
+    }
 
 
 def run_topology_relabel(state: EnsembleState) -> EnsembleState:

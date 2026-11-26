@@ -442,3 +442,201 @@ def test_llpr_real_mace_model_and_slab_data(tmp_path):
     assert float(np.median(rattled_struct_scores)) > float(
         np.median(train_struct_scores)
     )
+
+
+class _ConstantForceCalculator:
+    """Minimal ASE-like calculator returning deterministic forces for testing."""
+
+    def __init__(self, forces_map: dict[int, np.ndarray]):
+        self.forces_map = forces_map
+        self.call_count = 0
+
+    def get_forces(self, atoms: Atoms | None = None) -> np.ndarray:
+        self.call_count += 1
+        tag = int(atoms.info["frame_id"])
+        return self.forces_map[tag]
+
+
+def test_llpr_calibrate_pred_forces_key_none_ignores_stale_forces(tmp_path):
+    """Verify pred_forces_key=None forces fresh force_calc evaluation over stale MACE_forces."""
+    rng = np.random.default_rng(314)
+    D = 6
+    desc_calc = _FakeMACECalculator(feature_dim=D)
+
+    train_configs = [
+        _make_synthetic_atoms(["Cu", "O"], rng.normal(size=(2, D))) for _ in range(12)
+    ]
+    val_configs = []
+    fresh_forces: dict[int, np.ndarray] = {}
+    for i in range(10):
+        at = _make_synthetic_atoms(["Cu", "O"], rng.normal(size=(2, D)))
+        at.info["frame_id"] = i
+        f_dft = np.array([[10.0, 0.0, 0.0], [10.0, 0.0, 0.0]], dtype=np.float64)
+        # Stale MACE_forces -> huge bogus error (10.0 eV/A)
+        at.arrays["MACE_forces"] = np.zeros((2, 3), dtype=np.float64)
+        at.arrays["DFT_forces"] = f_dft
+        # Fresh v_k forces -> small true error (0.05 eV/A)
+        fresh_forces[i] = f_dft - np.array(
+            [[0.05, 0.0, 0.0], [0.05, 0.0, 0.0]], dtype=np.float64
+        )
+        val_configs.append(at)
+
+    fresh_calc = _ConstantForceCalculator(fresh_forces)
+
+    llpr = PerElementLLPR(lambda_reg=1e-4, device="cpu")
+    llpr.fit(train_configs, desc_calc)
+    diag = llpr.calibrate(
+        val_configs,
+        desc_calc,
+        force_calc=fresh_calc,
+        pred_forces_key=None,
+        tune_lambdas=(1e-4,),
+        deltas=(0.50, 0.20, 0.10),
+    )
+
+    assert fresh_calc.call_count == len(val_configs)
+    np.testing.assert_allclose(diag["val_atom_errors"], 0.05, rtol=1e-12, atol=1e-12)
+    assert llpr.element_metrics == diag["per_element"]
+    assert set(llpr.element_metrics.keys()) == {8, 29}
+    assert llpr.element_metrics[8]["mae"] == pytest.approx(0.05)
+
+    # Save & reload preserves element_metrics with weights_only=True
+    uq_path = tmp_path / "metrics_llpr.pt"
+    llpr.save(uq_path)
+    raw = torch.load(str(uq_path), map_location="cpu", weights_only=True)
+    assert "element_metrics" in raw
+
+    reloaded = PerElementLLPR.load(uq_path, device="cpu")
+    assert reloaded.element_metrics[8]["mae"] == pytest.approx(0.05)
+    assert reloaded.element_metrics[29]["p90"] == pytest.approx(0.05)
+
+    # Legacy payload without element_metrics still loads cleanly
+    raw.pop("element_metrics")
+    legacy_path = tmp_path / "legacy_llpr.pt"
+    torch.save(raw, str(legacy_path))
+    reloaded_legacy = PerElementLLPR.load(legacy_path, device="cpu")
+    assert reloaded_legacy.element_metrics == {}
+
+
+def test_llpr_select_sequential_batch_suppresses_duplicates_and_preserves_state():
+    """Verify greedy Gram/Cholesky updates suppress duplicate OOD clusters and leave llpr immutable."""
+    D = 6
+    calc = _FakeMACECalculator(feature_dim=D)
+
+    # Training spans dims 0 and 1 cleanly for Cu (29) and O (8)
+    rng = np.random.default_rng(7)
+    train_configs = []
+    for _ in range(30):
+        descs = np.zeros((2, D), dtype=np.float64)
+        descs[:, :2] = rng.normal(0.0, 1.0, size=(2, 2))
+        train_configs.append(_make_synthetic_atoms(["Cu", "O"], descs))
+
+    # Calibrate with small in-distribution errors (~0.02 eV/A)
+    val_configs = []
+    for _ in range(20):
+        descs = np.zeros((2, D), dtype=np.float64)
+        descs[:, :2] = rng.normal(0.0, 1.0, size=(2, 2))
+        val_configs.append(
+            _make_synthetic_atoms(["Cu", "O"], descs, err_norms=np.array([0.02, 0.02]))
+        )
+
+    llpr = PerElementLLPR(lambda_reg=1e-4, device="cpu")
+    llpr.fit(train_configs, calc)
+    llpr.calibrate(val_configs, calc, tune_lambdas=(1e-4,), deltas=(0.50, 0.20, 0.10))
+
+    # Snapshot fitted state to assert strict immutability
+    orig_grams = {z: g.clone() for z, g in llpr.gram_matrices.items()}
+    orig_chols = {z: c.clone() for z, c in llpr.cholesky_factors.items()}
+
+    # Build pool:
+    # 0: in-distribution (below tol)
+    # 1, 2, 3: 3 identical copies of OOD direction A (dim 2)
+    # 4, 5: 2 identical copies of OOD direction B (dim 3, orthogonal to A)
+    def _vec(dim_idx: int, mag: float = 2.0) -> np.ndarray:
+        arr = np.zeros((2, D), dtype=np.float64)
+        arr[:, dim_idx] = mag
+        return arr
+
+    in_dist = np.zeros((2, D), dtype=np.float64)
+    in_dist[:, 0] = 0.5
+    pool_descs = [
+        in_dist,
+        _vec(2, 2.0),
+        _vec(2, 2.0),
+        _vec(2, 2.0),
+        _vec(3, 1.8),
+        _vec(3, 1.8),
+    ]
+    pool_nums = [np.array([29, 8], dtype=int) for _ in pool_descs]
+
+    selected = llpr.select_sequential_batch(
+        candidate_descs=pool_descs,
+        candidate_numbers=pool_nums,
+        force_tol_eVA=0.10,
+        delta=0.50,
+    )
+
+    # Exactly 1 representative from cluster A (idx 1) and 1 from cluster B (idx 4)
+    assert selected == [1, 4]
+
+    # Fitted LLPR state must be completely untouched
+    for z, orig_g in orig_grams.items():
+        assert torch.equal(llpr.gram_matrices[z], orig_g)
+        assert torch.equal(llpr.cholesky_factors[z], orig_chols[z])
+
+
+def test_llpr_select_sequential_batch_unseen_element_and_top_k_fallback():
+    """Verify unseen-element inf handling and greedy diverse top-K fallback."""
+    D = 4
+    calc = _FakeMACECalculator(feature_dim=D)
+    eye = np.eye(D, dtype=np.float64)
+
+    # Trained ONLY on Cu (29)
+    train_configs = [
+        _make_synthetic_atoms(["Cu"], eye[i % D : i % D + 1]) for i in range(16)
+    ]
+    val_configs = [
+        _make_synthetic_atoms(
+            ["Cu"], eye[i % D : i % D + 1], err_norms=np.array([0.02])
+        )
+        for i in range(16)
+    ]
+
+    llpr = PerElementLLPR(lambda_reg=1e-4, device="cpu")
+    llpr.fit(train_configs, calc)
+    llpr.calibrate(val_configs, calc, tune_lambdas=(1e-4,), deltas=(0.50, 0.20, 0.10))
+
+    # Pool with duplicate unseen-element H (Z=1) environments along e0 + orthogonal H along e1
+    pool_descs = [
+        eye[0:1],  # idx 0: Cu in-dist
+        eye[0:1],  # idx 1: unseen H along e0
+        eye[0:1],  # idx 2: duplicate unseen H along e0
+        eye[1:2],  # idx 3: orthogonal unseen H along e1
+    ]
+    pool_nums = [np.array([29]), np.array([1]), np.array([1]), np.array([1])]
+
+    selected = llpr.select_sequential_batch(
+        candidate_descs=pool_descs,
+        candidate_numbers=pool_nums,
+        force_tol_eVA=0.10,
+        delta=0.50,
+    )
+    # idx 1 (H along e0) picked first (inf), idx 2 suppressed, idx 3 (orthogonal H along e1) picked
+    assert selected == [1, 3]
+
+    # Top-K fallback mode on all-below-threshold pool picks diverse directions rather than duplicates
+    fallback_descs = [
+        0.5 * eye[0:1],  # idx 0: cluster e0
+        0.5 * eye[0:1],  # idx 1: duplicate cluster e0
+        0.49 * eye[1:2],  # idx 2: cluster e1 (slightly lower initial score than idx 1)
+    ]
+    fallback_nums = [np.array([29]) for _ in fallback_descs]
+    fallback_selected = llpr.select_sequential_batch(
+        candidate_descs=fallback_descs,
+        candidate_numbers=fallback_nums,
+        force_tol_eVA=10.0,
+        delta=0.50,
+        top_k=2,
+    )
+    # Greedy update after picking idx 0 lowers idx 1 below idx 2 -> picks [0, 2]
+    assert fallback_selected == [0, 2]

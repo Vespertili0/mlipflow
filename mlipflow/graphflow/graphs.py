@@ -17,6 +17,7 @@ from mlipflow.graphflow.nodes import (
     run_mace_fit,
     run_mlip_sp,
     run_mlip_structure_generation,
+    run_post_fit_calibration,
     run_rattle_perturbation,
     run_rematch_basin_collapse,
     run_topology_relabel,
@@ -48,18 +49,17 @@ def execute_dft_single_point_block():
 
 def execute_mlip_training_block():
     """
-    Workflow to prepare, run, postprocess MLIP training.
+    Workflow to prepare, run, and calibrate MLIP training.
     """
     logger.info("...Executing MLIP training block...")
     graph = StateGraph(EnsembleState)
 
-    # graph.add_node('prepare_data', prepare_train_test_sets)
     graph.add_node("train_mace", run_mace_fit)
-    # graph.add_node('', )
+    graph.add_node("calibrate_llpr", run_post_fit_calibration)
 
     graph.add_edge(START, "train_mace")
-    # graph.add_edge('train_mace', 'eval_mlip')
-    graph.add_edge("train_mace", END)
+    graph.add_edge("train_mace", "calibrate_llpr")
+    graph.add_edge("calibrate_llpr", END)
 
     return graph.compile()
 
