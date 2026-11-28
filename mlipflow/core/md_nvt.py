@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import sys
 
@@ -13,6 +14,13 @@ except ImportError:
 
 from ase.md.logger import MDLogger
 from ase.md.velocitydistribution import MaxwellBoltzmannDistribution, Stationary
+
+try:
+    from ase.md.velocitydistribution import thermalize_momenta
+except ImportError:
+    thermalize_momenta = None
+
+from ase.parallel import DummyMPI
 from ase.units import fs
 from wfl.autoparallelize import autoparallelize, autoparallelize_docstring
 from wfl.generate.utils import save_config_type
@@ -121,13 +129,25 @@ def _sample_autopara_wrappable_single(
 
     if temperature_use is not None:
         assert rng is not None
-        MaxwellBoltzmannDistribution(
-            at,
-            temperature_K=temperature_use[0]["T_i"],
-            force_temp=True,
-            communicator=None,
-            rng=rng,
-        )
+        if thermalize_momenta is not None:
+            thermalize_momenta(
+                at,
+                temperature_K=temperature_use[0]["T_i"],
+                exact_temperature=True,
+                comm=DummyMPI(),
+                rng=rng,
+            )
+        else:
+            mb_kwargs: dict = {
+                "temperature_K": temperature_use[0]["T_i"],
+                "force_temp": True,
+                "rng": rng,
+            }
+            if "comm" in inspect.signature(MaxwellBoltzmannDistribution).parameters:
+                mb_kwargs["comm"] = DummyMPI()
+            else:
+                mb_kwargs["communicator"] = None
+            MaxwellBoltzmannDistribution(at, **mb_kwargs)
         Stationary(at, preserve_temperature=True)
 
     # 3. set up integrator parameters

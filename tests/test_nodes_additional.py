@@ -23,7 +23,8 @@ from mlipflow.graphflow.nodes import (
     run_topology_relabel,
     switch_to_neb_generation,
 )
-from mlipflow.strategies.structure_generators import MDGen, NEBGen
+from mlipflow.strategies.mlip import MACEModel
+from mlipflow.strategies.structure_generators import MDGen, NEBGen, OPTGen
 
 
 def test_merge_configs_value_error():
@@ -487,3 +488,62 @@ def test_run_mace_fit_requires_nonempty_model_file(tmp_path):
         )
     )
     assert res_ok["model_file"] == str(model_path)
+
+
+def test_structure_generation_compute_uq_defaults(tmp_path):
+    """Verify OPTGen/NEBGen default to compute_uq=False (overridable) and MDGen defaults to True."""
+    src_xyz = Path(__file__).resolve().parent / "data" / "test_data.xyz"
+    in_file = tmp_path / "in.xyz"
+    write(in_file, read(src_xyz, ":1"))
+
+    cwd = Path.cwd()
+    os.chdir(tmp_path)
+    try:
+        for step_idx, (gen_strat, mlip_gen_kw, expected_compute_uq) in enumerate(
+            [
+                (OPTGen(params={"steps": 1}), {}, False),
+                (NEBGen(params={"steps": 1}), {}, False),
+                (OPTGen(params={"steps": 1}), {"compute_uq": True}, True),
+                (MDGen(uncertainty_thrs=10.0, params={"steps": 1}), {}, True),
+            ],
+            start=1,
+        ):
+            mlip = MACEModel(mlip_name="pot_v0", run_mode="local")
+            captured_kw: dict = {}
+
+            def _spy_get_calc(job_name, _captured=captured_kw, **kw):
+                _captured.clear()
+                _captured.update(kw)
+                return ("dummy_calc", [], {})
+
+            mlip.get_calculator = MagicMock(side_effect=_spy_get_calc)
+            gen_strat.generate_new_structures = MagicMock(
+                side_effect=lambda in_file, out_file, **_kw: write(
+                    out_file[0] if isinstance(out_file, list) else out_file,
+                    read(in_file[0] if isinstance(in_file, list) else in_file, ":"),
+                )
+            )
+
+            state = EnsembleState(
+                configs=[str(in_file)],
+                iteration=1,
+                step_counter=step_idx,
+                mlip_strategy=mlip,
+                structure_gen_strategy=gen_strat,
+                uq_file="pot_v0_llpr.pt",
+                calculation_kwargs={
+                    "mlip_gen": mlip_gen_kw,
+                    "uncertainty_selection": {
+                        "atom_indices": slice(48, None),
+                        "exclude_fixed": False,
+                    },
+                },
+            )
+            run_mlip_structure_generation(state)
+            assert captured_kw["compute_uq"] is expected_compute_uq
+            if expected_compute_uq:
+                assert captured_kw["uq_file"] == "pot_v0_llpr.pt"
+                assert captured_kw["atom_indices"] == slice(48, None)
+                assert captured_kw["exclude_fixed"] is False
+    finally:
+        os.chdir(cwd)

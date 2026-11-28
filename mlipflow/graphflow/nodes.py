@@ -77,8 +77,12 @@ class EnsembleState(TypedDict):
                 - 'seed': deterministic RNG seed offset by iteration (default: 42)
                 - 'constraints': optional ASE constraints (falls back to initial_sampling.basin_constraints)
                 - 'atom_indices': optional slice/sequence restricting active rattled atoms
-            - 'mlip_sp': kwargs for MLIP single point calculations (e.g. dispersion)
-            - 'mlip_gen': kwargs for MLIP structure generation (e.g. dispersion)
+            - 'mlip_sp': kwargs for MLIP single point calculations (e.g. dispersion, compute_uq;
+                for MACEModel, inherits atom_indices/exclude_fixed/device/primary_delta from
+                uncertainty_selection and uq_file from state when not overridden)
+            - 'mlip_gen': kwargs for MLIP structure generation (e.g. dispersion, compute_uq;
+                for MACEModel, defaults compute_uq=False for OPTGen/NEBGen and True for MDGen,
+                inheriting uq_file and uncertainty_selection settings when compute_uq=True)
             - 'initial_sampling': kwargs for initial sampling nodes
                 - 'basin_constraints': list of constraints for basin sampling, e.g. FixAtoms
                 - 'basin__mlip_gen': kwargs for basin MLIP structure generation (e.g. dispersion)
@@ -114,7 +118,8 @@ class EnsembleState(TypedDict):
                 - 'dtype': MACECalculator dtype (default: 'float32')
                 - 'element_error_target': target element error gating fallback (default: force_tol_eVA)
                 - 'element_error_metric': metric key ('mae', 'p90', 'max_err') (default: 'p90')
-                - 'use_inline_uq': use pre-populated MACE_max_uq for pre-filtering (default: False)
+                - 'use_inline_uq': use pre-populated MACE_max_uq for pre-filtering
+                  (default: True in workflow node; False in standalone select_by_uncertainty)
             - 'neb_analysis': kwargs for NEB trajectory analysis
                 - 'prefixes': method prefixes for energy/force keys (default: ("MACE", "DFT"))
                 - 'n_frames': frames per NEB pathway (default: None -> single pathway)
@@ -527,6 +532,18 @@ def run_mlip_sp(state: EnsembleState) -> EnsembleState:
     num_inputs = mlip_kwargs.pop("num_inputs_per_queued_job", 300)
     max_time = mlip_kwargs.pop("max_time", "01:30:00")
 
+    if hasattr(mlip, "uq_file"):
+        sel_kwargs = state.get("calculation_kwargs", {}).get(
+            "uncertainty_selection", {}
+        )
+        for key in ("atom_indices", "exclude_fixed", "device"):
+            if key not in mlip_kwargs and key in sel_kwargs:
+                mlip_kwargs[key] = sel_kwargs[key]
+        if "primary_delta" not in mlip_kwargs and "delta" in sel_kwargs:
+            mlip_kwargs["primary_delta"] = sel_kwargs["delta"]
+        if "uq_file" not in mlip_kwargs and state.get("uq_file"):
+            mlip_kwargs["uq_file"] = state["uq_file"]
+
     try:
         run_single_point(
             in_file=configs,
@@ -816,7 +833,7 @@ def _run_structure_generation_logic(
 
     # Get MLIP kwargs for structure generation
     # Allow override for specific steps (e.g. basin vs neb)
-    mlip_kwargs = state.get("calculation_kwargs", {}).get("mlip_gen", {})
+    mlip_kwargs = dict(state.get("calculation_kwargs", {}).get("mlip_gen", {}))
     if mlip_gen_kwargs_override:
         mlip_kwargs = {**mlip_kwargs, **mlip_gen_kwargs_override}
 
@@ -825,6 +842,23 @@ def _run_structure_generation_logic(
 
     mlip = state["mlip_strategy"]
     structure_generator = state["structure_gen_strategy"]
+
+    if hasattr(mlip, "uq_file"):
+        if "compute_uq" not in mlip_kwargs:
+            mlip_kwargs["compute_uq"] = not isinstance(
+                structure_generator, (OPTGen, NEBGen)
+            )
+        if mlip_kwargs.get("compute_uq", False):
+            sel_kwargs = state.get("calculation_kwargs", {}).get(
+                "uncertainty_selection", {}
+            )
+            for key in ("atom_indices", "exclude_fixed", "device"):
+                if key not in mlip_kwargs and key in sel_kwargs:
+                    mlip_kwargs[key] = sel_kwargs[key]
+            if "primary_delta" not in mlip_kwargs and "delta" in sel_kwargs:
+                mlip_kwargs["primary_delta"] = sel_kwargs["delta"]
+            if "uq_file" not in mlip_kwargs and state.get("uq_file"):
+                mlip_kwargs["uq_file"] = state["uq_file"]
 
     # Set default structure generation parameters
     sg_params = structure_generator.params.copy()
@@ -1268,7 +1302,7 @@ def run_config_uncertainty_selection(state: EnsembleState) -> EnsembleState:
         element_metrics=state.get("element_metrics"),
         element_error_target=sel_kwargs.get("element_error_target", None),
         element_error_metric=sel_kwargs.get("element_error_metric", "p90"),
-        use_inline_uq=sel_kwargs.get("use_inline_uq", False),
+        use_inline_uq=sel_kwargs.get("use_inline_uq", True),
     )
 
     return {

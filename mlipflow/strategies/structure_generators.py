@@ -37,7 +37,14 @@ class StructureGenStrategy(ABC):
 
 # Strategy using MD as generator
 class MDGen(StructureGenStrategy):
-    def __init__(self, uncertainty_thrs, n_failed_steps=10, params=None) -> None:
+    def __init__(
+        self,
+        uncertainty_thrs,
+        n_failed_steps=10,
+        params=None,
+        uq_threshold: float | None = None,
+        uq_key: str = "MACE_max_uq_p90",
+    ) -> None:
         if params is None:
             params = {
                 "steps": 500,
@@ -48,6 +55,8 @@ class MDGen(StructureGenStrategy):
         super().__init__()
         self.uncertainty_thrs = uncertainty_thrs
         self.n_failed_steps = n_failed_steps
+        self.uq_threshold = uq_threshold
+        self.uq_key = uq_key
         self.params = params
         self.calc_prefix = "md"
 
@@ -77,7 +86,10 @@ class MDGen(StructureGenStrategy):
 
         # running MD
         abort_check = ForceCheck(
-            threshold=self.uncertainty_thrs, n_failed_steps=self.n_failed_steps
+            threshold=self.uncertainty_thrs,
+            n_failed_steps=self.n_failed_steps,
+            uq_threshold=self.uq_threshold,
+            uq_key=self.uq_key,
         )
 
         if remote_info is None:

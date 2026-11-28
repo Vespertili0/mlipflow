@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+import pickle
+from pathlib import Path
 
-from ase.calculators.mixing import SumCalculator
 from mace.calculators import MACECalculator
 
+from mlipflow.adapters.wflio import MACELLPRCalculator
 from mlipflow.strategies.mlip import GAPModel, MACEModel
 
 
@@ -17,41 +19,94 @@ def test_mace_model_initialization():
 
 
 def test_mace_model_get_calculator_local():
-    """Test MACEModel's get_calculator method in local mode."""
+    """Test MACEModel's get_calculator method in local mode (pickle-safe MACELLPRCalculator)."""
     test_dir = os.path.dirname(os.path.abspath(__file__))
     mlip_name = os.path.join(test_dir, "data", "mace_test")
     mace_model = MACEModel(mlip_name=mlip_name, run_mode="local")
     calculator = mace_model.get_calculator(job_name="test_job")
     assert calculator is not None
     assert isinstance(calculator, tuple)
-    # Default is dispersion=True, so it returns SumCalculator
-    assert calculator[0] == SumCalculator
+    # Default dispersion=True returns pickle-safe MACELLPRCalculator (compute_uq=False when .pt absent)
+    assert calculator[0] == MACELLPRCalculator
+    assert calculator[2]["dispersion"] is True
+    assert calculator[2]["compute_uq"] is False
+    assert calculator[2]["uq_file"] is None
+    assert Path(calculator[2]["model_paths"]).is_absolute()
+    assert pickle.loads(pickle.dumps(calculator))[0] == MACELLPRCalculator
     assert mace_model.remote_info is None
 
 
 def test_mace_model_get_calculator_remote():
-    """Test MACEModel's get_calculator method in remote mode."""
+    """Test MACEModel's get_calculator method in remote mode (pickle-safe for expyre)."""
     test_dir = os.path.dirname(os.path.abspath(__file__))
     mlip_name = os.path.join(test_dir, "data", "mace_test")
     mace_model = MACEModel(mlip_name=mlip_name, run_mode="remote")
     calculator = mace_model.get_calculator(job_name="test_job")
     assert calculator is not None
     assert isinstance(calculator, tuple)
-    assert calculator[0] == SumCalculator
+    assert calculator[0] == MACELLPRCalculator
+    assert calculator[2]["dispersion"] is True
+    assert calculator[2]["compute_uq"] is False
+    assert pickle.loads(pickle.dumps(calculator))[0] == MACELLPRCalculator
     assert mace_model.remote_info is not None
     assert mace_model.remote_info.job_name == "test_job"
 
 
 def test_mace_model_get_calculator_no_dispersion():
-    """Test MACEModel's get_calculator method without dispersion."""
+    """Test MACEModel's get_calculator method without dispersion or UQ artifact."""
     test_dir = os.path.dirname(os.path.abspath(__file__))
     mlip_name = os.path.join(test_dir, "data", "mace_test")
     mace_model = MACEModel(mlip_name=mlip_name, run_mode="local")
     calculator = mace_model.get_calculator(job_name="test_job", dispersion=False)
     assert calculator is not None
     assert isinstance(calculator, tuple)
-    # dispersion=False -> MACECalculator directly
+    # dispersion=False and no .pt -> MACECalculator directly
     assert calculator[0] == MACECalculator
+
+
+def test_mace_model_get_calculator_with_llpr_artifact(tmp_path):
+    """Test get_calculator returns MACELLPRCalculator with resolved absolute paths when .pt exists."""
+    model_file = tmp_path / "pot_v1.model"
+    uq_file = tmp_path / "pot_v1_llpr.pt"
+    model_file.write_text("dummy model", encoding="utf-8")
+    uq_file.write_text("dummy uq", encoding="utf-8")
+
+    mace = MACEModel(mlip_name=str(tmp_path / "pot_v1"), run_mode="local")
+
+    # 1. With valid .pt and compute_uq=True (both dispersion=True and dispersion=False)
+    for disp in (True, False):
+        recipe = mace.get_calculator(
+            job_name="mSP_",
+            dispersion=disp,
+            device="cpu",
+            atom_indices=slice(48, None),
+            exclude_fixed=False,
+            compute_uq=True,
+        )
+        assert recipe[0] == MACELLPRCalculator
+        kw = recipe[2]
+        assert Path(kw["model_paths"]).is_absolute()
+        assert kw["model_paths"] == str(model_file.resolve())
+        assert Path(kw["uq_file"]).is_absolute()
+        assert kw["uq_file"] == str(uq_file.resolve())
+        assert kw["dispersion"] is disp
+        assert kw["compute_uq"] is True
+        assert kw["atom_indices"] == slice(48, None)
+        assert kw["exclude_fixed"] is False
+        assert pickle.loads(pickle.dumps(recipe))[0] == MACELLPRCalculator
+
+    # 2. Explicit compute_uq=False disables UQ even when .pt exists
+    recipe_opt_disp = mace.get_calculator(
+        job_name="mSG_", dispersion=True, compute_uq=False
+    )
+    assert recipe_opt_disp[0] == MACELLPRCalculator
+    assert recipe_opt_disp[2]["compute_uq"] is False
+    assert recipe_opt_disp[2]["uq_file"] is None
+
+    recipe_opt_nodisp = mace.get_calculator(
+        job_name="mSG_", dispersion=False, compute_uq=False
+    )
+    assert recipe_opt_nodisp[0] == MACECalculator
 
 
 def test_mace_model_uq_file_default_and_override():

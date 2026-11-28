@@ -540,6 +540,85 @@ class PerElementLLPR:
         full_scores[idx] = raw_active
         return full_scores, float(np.max(raw_active))
 
+    def score_atoms_multi_delta(
+        self,
+        atoms: Atoms,
+        mace_calc: MACECalculator | Any,
+        deltas: Sequence[float] = (0.50, 0.10),
+        atom_indices: slice | Sequence[int] | np.ndarray | None = None,
+        exclude_fixed: bool = True,
+    ) -> dict[float, tuple[np.ndarray, float] | None]:
+        """Score a single ``Atoms`` configuration at multiple ``delta`` levels in one descriptor pass.
+
+        Extracts active-atom descriptors and evaluates raw per-atom LLPR leverage
+        once, then applies the split-conformal calibration multipliers for each
+        requested ``delta``. Any ``delta`` not present in ``self.calibrations``
+        yields ``None`` instead of raising ``KeyError``.
+
+        Parameters
+        ----------
+        atoms : Atoms
+            Atomic configuration to score.
+        mace_calc : MACECalculator
+            Frozen MACE calculator exposing ``get_descriptors``.
+        deltas : Sequence of float, default=(0.50, 0.10)
+            Miscoverage levels to evaluate.
+        atom_indices : slice or Sequence of int or np.ndarray, optional
+            Optional subset of active atom indices.
+        exclude_fixed : bool, default=True
+            If True, excludes fixed atoms from scoring (assigned ``0.0``).
+
+        Returns
+        -------
+        dict of float to (tuple of (np.ndarray, float) or None)
+            Mapping ``float(delta) -> (atom_scores, struct_score)`` for every
+            calibrated delta, or ``None`` if that delta was not calibrated.
+
+        Raises
+        ------
+        RuntimeError
+            If called before ``fit()``.
+        """
+        if not self.cholesky_factors:
+            raise RuntimeError(
+                "PerElementLLPR must be fitted via fit() before scoring."
+            )
+
+        idx = self._get_active_indices(atoms, atom_indices, exclude_fixed)
+        n_atoms = len(atoms)
+        if len(idx) > 0:
+            desc = self._extract_descriptors(atoms, mace_calc)[idx]
+            numbers = atoms.get_atomic_numbers()[idx]
+            raw_active = self._score_feature_array(desc, numbers)
+        else:
+            numbers = np.empty(0, dtype=int)
+            raw_active = np.empty(0, dtype=np.float64)
+
+        results: dict[float, tuple[np.ndarray, float] | None] = {}
+        for delta in deltas:
+            delta_f = float(delta)
+            try:
+                cal = self.get_calibration(delta_f)
+            except KeyError:
+                results[delta_f] = None
+                continue
+
+            full_scores = np.zeros(n_atoms, dtype=np.float64)
+            if len(idx) > 0:
+                cal_active = self._apply_atom_calibration(
+                    raw_active,
+                    numbers,
+                    q_atom=float(cal["q_atom"]),
+                    q_atom_by_z=cal["q_atom_by_z"],
+                )
+                full_scores[idx] = cal_active
+                struct_score = float(cal["q_struct"]) * float(np.max(cal_active))
+            else:
+                struct_score = 0.0
+            results[delta_f] = (full_scores, struct_score)
+
+        return results
+
     def score_configs(
         self,
         configs: str | Path | ConfigSet | Iterable[Atoms],

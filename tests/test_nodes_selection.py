@@ -8,11 +8,14 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 from ase import Atoms
 from ase.io import read, write
+from mace.calculators import MACECalculator
 
+from mlipflow.data.llpr import PerElementLLPR
 from mlipflow.graphflow.nodes import (
     EnsembleState,
     run_config_fps_selection,
     run_config_uncertainty_selection,
+    run_mlip_sp,
 )
 from mlipflow.strategies.mlip import MACEModel
 
@@ -160,5 +163,136 @@ def test_run_config_uncertainty_selection_kwargs_and_idempotency(tmp_path):
             assert res_skip["configs"] == [str(out_path)]
             assert res_skip["selected_count"] == 2
             assert res_skip["step_counter"] == 10
+
+        # When use_inline_uq is omitted from calculation_kwargs, workflow node defaults to True
+        state_default_inline = EnsembleState(
+            configs=["pool.xyz"],
+            iteration=2,
+            step_counter=1,
+            mlip_strategy=mlip_strategy,
+            uq_file="custom_v0_llpr.pt",
+            calculation_kwargs={"uncertainty_selection": {"force_tol_eVA": 0.10}},
+        )
+        with patch(
+            "mlipflow.graphflow.nodes.select_by_uncertainty", return_value=[Atoms("H")]
+        ) as mock_default:
+            run_config_uncertainty_selection(state_default_inline)
+            assert mock_default.call_args.kwargs["use_inline_uq"] is True
+    finally:
+        os.chdir(cwd)
+
+
+def test_run_mlip_sp_to_uncertainty_selection_inline_prefilter(tmp_path):
+    """End-to-end run_mlip_sp -> run_config_uncertainty_selection skips descriptors on below-threshold frames."""
+    data_dir = Path(__file__).resolve().parent / "data"
+    model_path = data_dir / "mace_test.model"
+    src_xyz = data_dir / "test_data.xyz"
+    all_frames = read(src_xyz, ":")
+    atom_slice = slice(48, None)
+
+    mace_calc = MACECalculator(
+        model_paths=str(model_path), device="cpu", default_dtype="float32"
+    )
+    train_frames = all_frames[:6]
+    val_frames = [at.copy() for at in all_frames[6:10]]
+    rng = np.random.default_rng(31)
+    for at in val_frames:
+        at_c = at.copy()
+        at_c.calc = mace_calc
+        f_mace = at_c.get_forces()
+        at.arrays["MACE_forces"] = f_mace
+        at.arrays["DFT_forces"] = f_mace + rng.normal(0.0, 0.03, size=f_mace.shape)
+
+    llpr = PerElementLLPR(invariants_only=True, device="cpu")
+    llpr.fit(train_frames, mace_calc, atom_indices=atom_slice, exclude_fixed=False)
+    llpr.calibrate(
+        val_frames,
+        mace_calc,
+        atom_indices=atom_slice,
+        exclude_fixed=False,
+        deltas=(0.50, 0.20, 0.10),
+        tune_lambdas=(1e-4,),
+    )
+    uq_file = tmp_path / "mace_test_llpr.pt"
+    llpr.save(uq_file)
+
+    eq_frames = [train_frames[0].copy(), train_frames[1].copy()]
+    for at in eq_frames:
+        at.info["cluster"] = "eq"
+
+    ood_frame = train_frames[0].copy()
+    pos = ood_frame.get_positions()
+    pos[48:] += np.random.default_rng(123).normal(
+        0.0, 0.25, size=(len(ood_frame) - 48, 3)
+    )
+    ood_frame.set_positions(pos)
+    ood_frame.info["cluster"] = "ood"
+
+    _, eq_scores = llpr.score_configs(
+        eq_frames, mace_calc, atom_indices=atom_slice, exclude_fixed=False, delta=0.50
+    )
+    _, ood_score = llpr.score_atoms(
+        ood_frame, mace_calc, atom_indices=atom_slice, exclude_fixed=False, delta=0.50
+    )
+    assert ood_score > float(np.max(eq_scores))
+    tol = 0.5 * (float(np.max(eq_scores)) + float(ood_score))
+
+    # Pool has 2 below-tol equilibrium frames + 2 identical passing OOD frames
+    pool_xyz = tmp_path / "merged_pool.xyz"
+    write(pool_xyz, [*eq_frames, ood_frame.copy(), ood_frame.copy()])
+
+    mlip_strategy = MACEModel(
+        mlip_name=str(data_dir / "mace_test"), run_mode="local", uq_file=str(uq_file)
+    )
+
+    state = EnsembleState(
+        configs=[str(pool_xyz)],
+        iteration=1,
+        step_counter=8,
+        mlip_strategy=mlip_strategy,
+        uq_file=str(uq_file),
+        calculation_kwargs={
+            "mlip_sp": {"dispersion": False},
+            "uncertainty_selection": {
+                "force_tol_eVA": tol,
+                "atom_indices": atom_slice,
+                "exclude_fixed": False,
+                "delta": 0.50,
+            },
+        },
+    )
+
+    cwd = Path.cwd()
+    os.chdir(tmp_path)
+    try:
+        # 1. run_mlip_sp inherits atom_indices, exclude_fixed, and uq_file -> writes inline UQ + provenance
+        sp_state = run_mlip_sp(state)
+        sp_frames = read(sp_state["configs"][0], ":")
+        assert len(sp_frames) == 4
+        for at in sp_frames:
+            assert "MACE_max_uq" in at.info
+            assert "MACE_max_uq_p90" in at.info
+            assert "MACE_uq_delta" in at.info
+            assert at.info["MACE_uq_model"] == uq_file.name
+
+        # 2. run_config_uncertainty_selection uses inline pre-filter (default use_inline_uq=True),
+        # skipping get_descriptors on the 2 equilibrium frames and running it ONLY on the 2 OOD frames!
+        desc_call_count = 0
+        orig_get_desc = MACECalculator.get_descriptors
+
+        def _spy_get_descriptors(self, *args, **kwargs):
+            nonlocal desc_call_count
+            desc_call_count += 1
+            return orig_get_desc(self, *args, **kwargs)
+
+        with patch.object(MACECalculator, "get_descriptors", new=_spy_get_descriptors):
+            sel_state = run_config_uncertainty_selection(sp_state)
+
+        assert desc_call_count == 2
+        selected = read(sel_state["configs"][0], ":")
+        # Sequential Batch LLPR collapses the 2 identical OOD copies into 1 non-redundant selection
+        assert len(selected) == 1
+        assert sel_state["selected_count"] == 1
+        assert selected[0].info["cluster"] == "ood"
     finally:
         os.chdir(cwd)

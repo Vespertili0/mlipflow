@@ -4,19 +4,22 @@ import itertools
 import json
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import torch
-from ase.calculators.mixing import SumCalculator
 from mace.calculators import MACECalculator
 from quippy.potential import Potential
-from torch_dftd.torch_dftd3_calculator import TorchDFTD3Calculator
 from universalSOAP import SOAP_hypers
 from wfl.configset import ConfigSet
 from wfl.fit.gap.multistage import fit as multi_gap_fit
 from wfl.fit.mace import fit as mace_fit
 
-from mlipflow.adapters.wflio import GAPCalc
+from mlipflow.adapters.wflio import GAPCalc, MACELLPRCalculator
 from mlipflow.utils import prepare_remote
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    import numpy as np
 
 #####################################################################
 
@@ -42,6 +45,7 @@ class MLIPStrategy(ABC):
         assert run_mode in ["local", "remote"], 'run_mode is "local" or "remote"'
         self.run_mode = run_mode
         self.mlip_name = mlip_name
+        self.remote_info = None
 
     def set_model_name(self, mlip_name: str) -> None:
         """Update the model name for this MLIP strategy.
@@ -140,23 +144,62 @@ class MACEModel(MLIPStrategy):
         job_name: str,
         dispersion: bool = True,
         dtype: str = "float32",
+        device: str = "cpu",
         n_cores: int = 1,
         max_time: str = "00:10:00",
         num_inputs_per_queued_job: int = 4,
         max_mem_tot: str = "12GB",
+        uq_file: str | Path | None = None,
+        atom_indices: slice | Sequence[int] | np.ndarray | None = None,
+        exclude_fixed: bool = True,
+        compute_uq: bool = True,
+        primary_delta: float = 0.50,
+        p90_delta: float | None = 0.10,
     ) -> tuple:
-        """
-        It returns the MACE-calculator as tuple with the ase-calculator class, arguments and keyword arguments.
-        Creates the remote_info object if run_mode is 'remote'.
+        """Return a pickle-safe calculator recipe ``(cls, args, kwargs)``.
 
-        Args:
-            job_name (str): Name of the job.
-            dispersion (bool): Whether to include dispersion. Defaults to True.
-            max_time (str): Maximum time for remote job. Defaults to '00:10:00'.
-            dtype (str): Data type. Defaults to 'float32'.
+        Creates ``self.remote_info`` when ``self.run_mode == "remote"``. Uses
+        :class:`MACELLPRCalculator` with resolved absolute paths whenever inline
+        LLPR UQ is active (``compute_uq=True`` and a non-empty ``.pt`` artifact
+        exists) or ``dispersion=True`` (avoiding unpicklable live
+        ``SumCalculator`` objects in remote ``expyre`` workers).
 
-        Returns:
-            tuple: Calculator configuration.
+        Parameters
+        ----------
+        job_name : str
+            Name of the job.
+        dispersion : bool, default=True
+            Whether to include BJ-damped DFT-D3 dispersion.
+        dtype : str, default="float32"
+            Calculator floating-point precision (``"float32"`` or ``"float64"``).
+        device : str, default="cpu"
+            PyTorch device for calculator execution.
+        n_cores : int, default=1
+            Number of cores for remote jobs.
+        max_time : str, default="00:10:00"
+            Maximum walltime for remote jobs.
+        num_inputs_per_queued_job : int, default=4
+            Number of inputs per queued remote job.
+        max_mem_tot : str, default="12GB"
+            Total memory requested for remote jobs.
+        uq_file : str or Path or None, optional
+            Explicit path to a serialized ``PerElementLLPR`` ``.pt`` artifact.
+            Defaults to ``self.uq_file``.
+        atom_indices : slice or Sequence of int or np.ndarray, optional
+            Optional active atom indices for inline LLPR scoring.
+        exclude_fixed : bool, default=True
+            If True, excludes ASE ``FixAtoms`` constrained atoms from LLPR scoring.
+        compute_uq : bool, default=True
+            If True (and a valid ``.pt`` exists), enable inline LLPR UQ evaluation.
+        primary_delta : float, default=0.50
+            Miscoverage level for ``MACE_atom_uq`` / ``MACE_max_uq``.
+        p90_delta : float or None, default=0.10
+            Optional secondary miscoverage level for ``MACE_max_uq_p90``.
+
+        Returns
+        -------
+        tuple
+            Pickle-safe ``(calculator_cls, args, kwargs)`` recipe.
         """
         if self.run_mode == "local":
             self.remote_info = None
@@ -176,33 +219,58 @@ class MACEModel(MLIPStrategy):
                 ],
             )
 
-        if not dispersion:
-            calculator = (
-                MACECalculator,
+        resolved_model = str(Path(self.model_file).resolve())
+        uq_candidate = uq_file if uq_file is not None else self.uq_file
+        has_valid_uq = bool(
+            compute_uq
+            and uq_candidate is not None
+            and Path(uq_candidate).exists()
+            and Path(uq_candidate).stat().st_size > 0
+        )
+
+        if has_valid_uq:
+            return (
+                MACELLPRCalculator,
                 [],
                 {
-                    "model_paths": str(Path(self.model_file).resolve()),
-                    "device": "cpu",
-                    "default_dtype": dtype,
-                    #    'dispersion': dispersion
+                    "model_paths": resolved_model,
+                    "uq_file": str(Path(uq_candidate).resolve()),
+                    "dispersion": dispersion,
+                    "dtype": dtype,
+                    "device": device,
+                    "atom_indices": atom_indices,
+                    "exclude_fixed": exclude_fixed,
+                    "prefix": self.mlip_prefix,
+                    "primary_delta": primary_delta,
+                    "p90_delta": p90_delta,
+                    "compute_uq": True,
                 },
             )
 
-        elif dispersion:
-            mace_calc = MACECalculator(
-                model_paths=str(Path(self.model_file).resolve()),
-                device="cpu",
-                default_dtype=dtype,
+        if dispersion:
+            return (
+                MACELLPRCalculator,
+                [],
+                {
+                    "model_paths": resolved_model,
+                    "uq_file": None,
+                    "dispersion": True,
+                    "dtype": dtype,
+                    "device": device,
+                    "atom_indices": atom_indices,
+                    "exclude_fixed": exclude_fixed,
+                    "prefix": self.mlip_prefix,
+                    "primary_delta": primary_delta,
+                    "p90_delta": p90_delta,
+                    "compute_uq": False,
+                },
             )
-            dftd3_calc = TorchDFTD3Calculator(
-                damping="bj",  # "zero", "bj", "zerom", "bjm"
-                old=False,  # False = use DFTD3 method, True = DFTD2
-                device="cpu",
-                dtype=torch.float32 if dtype == "float32" else torch.float64,
-            )
-            calculator = (SumCalculator, [], {"calcs": [mace_calc, dftd3_calc]})
 
-        return calculator
+        return (
+            MACECalculator,
+            [],
+            {"model_paths": resolved_model, "device": device, "default_dtype": dtype},
+        )
 
     def fit_new_model(
         self,

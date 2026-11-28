@@ -640,3 +640,61 @@ def test_llpr_select_sequential_batch_unseen_element_and_top_k_fallback():
     )
     # Greedy update after picking idx 0 lowers idx 1 below idx 2 -> picks [0, 2]
     assert fallback_selected == [0, 2]
+
+
+def test_llpr_score_atoms_multi_delta_single_pass_and_missing_delta():
+    """Verify score_atoms_multi_delta calls get_descriptors once, matches score_atoms, and returns None for uncalibrated deltas."""
+    rng = np.random.default_rng(55)
+    D = 6
+
+    class _CountingCalc(_FakeMACECalculator):
+        def __init__(self, feature_dim: int = 6):
+            super().__init__(feature_dim=feature_dim)
+            self.calls = 0
+
+        def get_descriptors(
+            self, atoms: Atoms, invariants_only: bool = True
+        ) -> np.ndarray:
+            self.calls += 1
+            return super().get_descriptors(atoms, invariants_only=invariants_only)
+
+    calc = _CountingCalc(feature_dim=D)
+    train_configs = [
+        _make_synthetic_atoms(
+            ["Cu", "Cu", "O"], rng.normal(size=(3, D)), fixed_indices=[0]
+        )
+        for _ in range(15)
+    ]
+    val_configs = [
+        _make_synthetic_atoms(
+            ["Cu", "Cu", "O"],
+            rng.normal(size=(3, D)),
+            err_norms=rng.uniform(0.02, 0.15, size=3),
+            fixed_indices=[0],
+        )
+        for _ in range(20)
+    ]
+
+    llpr = PerElementLLPR(lambda_reg=1e-4, device="cpu")
+    llpr.fit(train_configs, calc)
+    # Calibrate ONLY at 0.50 and 0.20 (deliberately omit 0.10 to test missing optional delta)
+    llpr.calibrate(val_configs, calc, tune_lambdas=(1e-4,), deltas=(0.50, 0.20))
+
+    probe = _make_synthetic_atoms(
+        ["Cu", "Cu", "O"], rng.normal(size=(3, D)), fixed_indices=[0]
+    )
+
+    calc.calls = 0
+    multi = llpr.score_atoms_multi_delta(probe, calc, deltas=(0.50, 0.20, 0.10))
+    assert calc.calls == 1
+    assert set(multi.keys()) == {0.50, 0.20, 0.10}
+    assert multi[0.10] is None
+
+    for delta in (0.50, 0.20):
+        ref_atom, ref_struct = llpr.score_atoms(
+            probe, calc, calibrated=True, delta=delta
+        )
+        got_atom, got_struct = multi[delta]
+        np.testing.assert_allclose(got_atom, ref_atom, rtol=1e-12, atol=1e-12)
+        assert got_struct == pytest.approx(ref_struct, rel=1e-12, abs=1e-12)
+        assert got_atom[0] == 0.0
